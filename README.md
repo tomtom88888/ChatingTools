@@ -93,6 +93,11 @@ If you would rather not install the Android SDK, the
 `build apk` on every push; the APK is attached to the run under **Actions → the
 run → Artifacts → replylikeme-apk**.
 
+Run that workflow by hand (**Actions → Build APK → Run workflow**) and it also
+publishes the APK as a prerelease, which gives a plain download link instead of
+an artifact zip that needs a logged-in browser. Ordinary pushes never create
+releases.
+
 ### Optional: the iOS share sheet
 
 Picking a file with the file picker works on both platforms out of the box, and

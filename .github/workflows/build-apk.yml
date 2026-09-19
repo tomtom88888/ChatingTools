@@ -11,6 +11,9 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    # Needed only by the release step below.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -43,3 +46,26 @@ jobs:
           name: replylikeme-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      # Artifacts need a logged-in browser to download. Running this workflow by
+      # hand ("Run workflow" in the Actions tab) also publishes the APK as a
+      # prerelease, which gives a plain download link. Ordinary pushes skip
+      # this, so they never create releases.
+      - name: Publish the APK as a prerelease
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="apk-${GITHUB_SHA::7}"
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" --clobber
+          else
+            gh release create "$tag" "$apk" \
+              --target "$GITHUB_SHA" \
+              --title "ReplyLikeMe APK ($tag)" \
+              --prerelease \
+              --notes "Universal debug-signed APK built from $GITHUB_SHA. For sideloading only - not signed for the Play Store."
+          fi
+          echo "Release: $(gh release view "$tag" --json url --jq .url)"
