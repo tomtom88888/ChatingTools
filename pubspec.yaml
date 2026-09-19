@@ -1,0 +1,40 @@
+name: replylikeme
+description: >-
+  Suggests WhatsApp replies written in your own texting style, learned from
+  your own chat exports. All chat data stays on the device.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^3.4.3
+
+  # Networking (OpenAI REST API is called directly)
+  http: ^1.6.0
+
+  # Storage
+  flutter_secure_storage: ^11.2.0   # API key only
+  sqflite: ^2.4.4                   # style-memory vectors
+  shared_preferences: ^2.5.5        # non-secret settings
+  path: ^1.9.1
+  path_provider: ^2.1.6
+
+  # Import / pick
+  file_picker: ^13.1.0              # pick .txt / .zip export
+  image_picker: ^1.2.3              # pick conversation screenshot
+  archive: ^4.3.0                   # read WhatsApp .zip exports
+  receive_sharing_intent: ^1.9.0    # Android/iOS share sheet
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
