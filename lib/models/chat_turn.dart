@@ -33,6 +33,27 @@ class ChatTurn {
   final DateTime? firstTimestamp;
   final DateTime? lastTimestamp;
 
+  Map<String, Object?> toJson() => {
+    'sender': sender,
+    'text': text,
+    'messageCount': messageCount,
+    'firstTimestamp': firstTimestamp?.millisecondsSinceEpoch,
+    'lastTimestamp': lastTimestamp?.millisecondsSinceEpoch,
+  };
+
+  factory ChatTurn.fromJson(Map<String, Object?> json) {
+    DateTime? at(Object? millis) => millis is num
+        ? DateTime.fromMillisecondsSinceEpoch(millis.toInt())
+        : null;
+    return ChatTurn(
+      sender: (json['sender'] as String?) ?? '',
+      text: (json['text'] as String?) ?? '',
+      messageCount: (json['messageCount'] as num?)?.toInt() ?? 1,
+      firstTimestamp: at(json['firstTimestamp']),
+      lastTimestamp: at(json['lastTimestamp']),
+    );
+  }
+
   @override
   String toString() => 'ChatTurn($sender x$messageCount: "$text")';
 }
