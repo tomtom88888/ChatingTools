@@ -83,6 +83,16 @@ flutter build appbundle --release
 flutter build ios --release      # iOS (needs Xcode and a signing identity)
 ```
 
+`flutter build apk --release` works with no keystore because the Flutter
+template signs release builds with the Android debug key — fine for installing
+on your own phone, not acceptable for the Play Store. Add a real keystore and
+`signingConfig` in `android/app/build.gradle.kts` before publishing.
+
+If you would rather not install the Android SDK, the
+[Build APK workflow](.github/workflows/build-apk.yml) runs `analyze`, `test` and
+`build apk` on every push; the APK is attached to the run under **Actions → the
+run → Artifacts → replylikeme-apk**.
+
 ### Optional: the iOS share sheet
 
 Picking a file with the file picker works on both platforms out of the box, and
