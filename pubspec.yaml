@@ -38,3 +38,28 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    # The three families the design is set in. Bundled rather than fetched at
+    # runtime so the app renders correctly offline.
+    - family: Instrument Serif
+      fonts:
+        - asset: assets/fonts/InstrumentSerif-400.ttf
+          weight: 400
+        - asset: assets/fonts/InstrumentSerif-400Italic.ttf
+          weight: 400
+          style: italic
+    - family: Public Sans
+      fonts:
+        - asset: assets/fonts/PublicSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/PublicSans-500.ttf
+          weight: 500
+        - asset: assets/fonts/PublicSans-600.ttf
+          weight: 600
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-400.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-500.ttf
+          weight: 500

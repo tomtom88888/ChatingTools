@@ -45,14 +45,18 @@ class SecureKeyStore {
   /// key works. This just catches the obvious paste mistakes.
   static String? validationError(String key) {
     final trimmed = key.trim();
-    if (trimmed.isEmpty) return 'Paste your OpenAI API key.';
+    if (trimmed.isEmpty) return 'Paste your key to continue.';
     if (trimmed.contains(RegExp(r'\s'))) {
-      return 'That key contains a space or line break — check the paste.';
+      return "There's a space in there — pasting often grabs one.";
     }
     if (!trimmed.startsWith('sk-')) {
-      return 'OpenAI keys start with "sk-". That looks like something else.';
+      return 'OpenAI keys start with sk-. This looks like a different '
+          "service's key.";
     }
-    if (trimmed.length < 20) return 'That key looks too short.';
+    if (trimmed.length < 20) {
+      return "That's shorter than any OpenAI key — probably a partial "
+          'paste.';
+    }
     return null;
   }
 

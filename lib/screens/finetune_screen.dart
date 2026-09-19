@@ -8,10 +8,15 @@ import '../models/finetune_job.dart';
 import '../services/finetune_service.dart';
 import '../services/pricing.dart';
 import '../state/providers.dart';
+import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
+import '../widgets/paper_ui.dart';
 
-/// Mode B: build a JSONL dataset from the style memory, show what it will
-/// cost, and only then start a fine-tuning job.
+/// Mode B. The only screen that spends real money and the only one that sends
+/// the user's messages anywhere, so it is deliberately unhurried.
+///
+/// The design document leaves this screen undrawn; it follows the same
+/// language as the rest.
 class FineTuneScreen extends ConsumerStatefulWidget {
   const FineTuneScreen({super.key});
 
@@ -46,8 +51,8 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     super.dispose();
   }
 
-  /// Builds the dataset from what's already in the style memory, so the cost
-  /// shown comes from the exact bytes that would be uploaded.
+  /// Builds the dataset from what is already learned, so the cost shown comes
+  /// from the exact bytes that would be uploaded.
   Future<void> _prepare() async {
     setState(() {
       _preparing = true;
@@ -85,7 +90,7 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     });
   }
 
-  /// A job started in an earlier session is still running; pick it back up.
+  /// A job started in an earlier session may still be running.
   Future<void> _resumePendingJob() async {
     final jobId = await ref.read(settingsStoreProvider).pendingFineTuneJobId();
     if (jobId == null || jobId.isEmpty) return;
@@ -127,27 +132,36 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
   Future<bool?> _confirm(FineTuneEstimate estimate) => showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('This will cost money'),
+      backgroundColor: Paper.bg,
+      surfaceTintColor: Paper.bg,
+      shape: RoundedRectangleBorder(borderRadius: Corner.all(Corner.card)),
+      title: Text('This will cost money', style: Type.strong(size: 17)),
       content: Text(
-        'Training on ${estimate.exampleCount} examples for '
-        '${estimate.epochs} ${estimate.epochs == 1 ? "epoch" : "epochs"} is '
-        'roughly ${estimate.estimatedTotalTokens} tokens, about '
+        'Training on ${estimate.exampleCount} examples for ${estimate.epochs} '
+        '${estimate.epochs == 1 ? "pass" : "passes"} is roughly '
+        '${estimate.estimatedTotalTokens} tokens, about '
         '${estimate.formattedUsd} at '
         '${Pricing.formatUsd(estimate.usdPerMillionTokens)} per million '
-        'training tokens.\n\n'
-        'That is an estimate, not a quote: the real figure comes from '
-        "OpenAI's tokeniser and current prices, and your account is charged "
-        'either way.\n\n'
-        'Your messages are uploaded to OpenAI as a training file to do this.',
+        'training tokens.\n\nThat is an estimate, not a quote: the real figure '
+        "comes from OpenAI's tokeniser and current prices, and your account is "
+        'charged either way.\n\nYour messages are uploaded to OpenAI as a '
+        'training file to do this.',
+        style: Type.prose(size: 14, color: Paper.body),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(
+            'Cancel',
+            style: Type.strong(size: 14, color: Paper.secondary),
+          ),
         ),
-        FilledButton(
+        TextButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: Text('Start (${estimate.formattedUsd})'),
+          child: Text(
+            'Start (${estimate.formattedUsd})',
+            style: Type.strong(size: 14, color: Paper.accent),
+          ),
         ),
       ],
     ),
@@ -157,33 +171,29 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     final service = ref.read(fineTuneServiceProvider);
     if (service == null) return;
     unawaited(_watch?.cancel());
-    _watch = service
-        .watch(jobId)
-        .listen(
-          (job) async {
-            if (mounted) setState(() => _job = job);
-            if (!job.isTerminal) return;
+    _watch = service.watch(jobId).listen(
+      (job) async {
+        if (mounted) setState(() => _job = job);
+        if (!job.isTerminal) return;
 
-            await ref.read(settingsStoreProvider).setPendingFineTuneJobId(null);
-            final model = job.fineTunedModel;
-            if (job.status == FineTuneStatus.succeeded &&
-                model != null &&
-                model.isNotEmpty) {
-              // Save the model and switch to it: the user paid for it.
-              await ref
-                  .read(settingsProvider.notifier)
-                  .edit(
-                    (s) => s.copyWith(
-                      fineTunedModel: model,
-                      mode: TrainingMode.fineTune,
-                    ),
-                  );
-            }
-          },
-          onError: (Object error) {
-            if (mounted) setState(() => _error = error);
-          },
-        );
+        await ref.read(settingsStoreProvider).setPendingFineTuneJobId(null);
+        final model = job.fineTunedModel;
+        if (job.status == FineTuneStatus.succeeded &&
+            model != null &&
+            model.isNotEmpty) {
+          // Save the model and switch to it: the user paid for it.
+          await ref.read(settingsProvider.notifier).edit(
+            (s) => s.copyWith(
+              fineTunedModel: model,
+              mode: TrainingMode.fineTune,
+            ),
+          );
+        }
+      },
+      onError: (Object error) {
+        if (mounted) setState(() => _error = error);
+      },
+    );
   }
 
   Future<void> _cancelJob() async {
@@ -205,150 +215,243 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     final estimate = _estimate;
     final job = _job;
     final running = job != null && !job.isTerminal;
+    final nothingToTrain = estimate == null || estimate.exampleCount == 0;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Fine-tuning')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: const Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Before you start'),
-                    SizedBox(height: 8),
-                    Text(
-                      'OpenAI is winding fine-tuning down. Accounts that never '
-                      'fine-tuned before cannot create jobs any more, and '
-                      'existing ones lose access during January 2027. If your '
-                      'account cannot use it, starting a job will fail with '
-                      "OpenAI's own message and nothing will be charged.\n\n"
-                      'Style memory needs no training run, costs almost '
-                      'nothing, and is usually just as convincing.',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ],
+    return PaperScreen(
+      gap: 16,
+      bottom: nothingToTrain || running
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PaperAction(
+                  title: _starting
+                      ? 'Starting…'
+                      : 'Review the cost and start',
+                  centred: true,
+                  busy: _starting,
+                  onTap: _starting ? null : _start,
                 ),
+                const SizedBox(height: 11),
+                const Footnote(
+                  'Nothing is uploaded or charged until you confirm the amount.',
+                ),
+              ],
+            ),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: const Text(
+              '←',
+              style: TextStyle(fontSize: 19, color: Paper.secondary),
+            ),
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SerifTitle('A model of your own', size: 32),
+            const SizedBox(height: 9),
+            Text(
+              'Mode B trains a private model on the same replies the style '
+              'memory already holds. It is not the recommended path.',
+              style: Type.prose(size: 14.5),
+            ),
+          ],
+        ),
+        const Notice(
+          'Accounts that never fine-tuned before can no longer create jobs, '
+          'and existing ones lose access during January 2027. If yours cannot, '
+          "starting fails with OpenAI's own message and nothing is charged.\n\n"
+          'Style memory needs no training run, costs almost nothing, and is '
+          'usually just as convincing.',
+          tone: NoticeTone.caution,
+          title: 'OpenAI is retiring fine-tuning',
+        ),
+        if (_error != null) FailureNotice(error: _error!, onRetry: _prepare),
+        if (_preparing)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              FailureCard(error: _error!, onRetry: _prepare),
-            ],
-            const SizedBox(height: 12),
-            if (_preparing)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (estimate == null || estimate.exampleCount == 0)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'There is nothing to train on yet. Import a chat export '
-                    'and build the style memory first — fine-tuning reuses '
-                    'exactly that data.',
-                  ),
-                ),
-              )
-            else
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
+          )
+        else if (nothingToTrain)
+          PaperPanel(
+            radius: Corner.card,
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'There is nothing to train on yet. Import a chat export and '
+              'build the style memory first — fine-tuning reuses exactly '
+              'that data.',
+              style: Type.prose(size: 14, color: Paper.body),
+            ),
+          )
+        else
+          _DatasetCard(
+            estimate: estimate,
+            settings: settings,
+            epochs: _epochs,
+            locked: running || _starting,
+            onEpochs: _setEpochs,
+          ),
+        if (job != null) _JobCard(job: job, onCancel: running ? _cancelJob : null),
+        if (settings.hasFineTunedModel)
+          PaperCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
+              children: [
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'The dataset',
-                        style: Theme.of(context).textTheme.titleMedium,
+                        'Fine-tuned model saved',
+                        style: Type.strong(size: 14),
                       ),
-                      const SizedBox(height: 8),
-                      Text('${estimate.exampleCount} training examples'),
-                      Text('Base model: ${settings.fineTuneBaseModel}'),
+                      const SizedBox(height: 3),
                       Text(
-                        'Up to ${settings.contextTurns} previous turns as '
-                        'context per example',
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          const Text('Epochs'),
-                          const Spacer(),
-                          IconButton(
-                            icon: const Icon(Icons.remove),
-                            onPressed: running || _epochs <= 1
-                                ? null
-                                : () => _setEpochs(_epochs - 1),
-                          ),
-                          Text('$_epochs'),
-                          IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: running || _epochs >= 10
-                                ? null
-                                : () => _setEpochs(_epochs + 1),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-                      Text(
-                        'Estimated cost: ${estimate.formattedUsd}',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        '~${estimate.estimatedTotalTokens} training tokens at '
-                        '${Pricing.formatUsd(estimate.usdPerMillionTokens)} '
-                        'per million. Estimate only.',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      const SizedBox(height: 14),
-                      FilledButton.icon(
-                        onPressed: _starting || running ? null : _start,
-                        icon: const Icon(Icons.model_training),
-                        label: Text(
-                          _starting ? 'Starting...' : 'Review cost and start',
+                        settings.fineTunedModel!,
+                        style: Type.numeric(
+                          size: 12.5,
+                          color: Paper.tertiary,
+                          weight: FontWeight.w400,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            if (job != null) ...[
-              const SizedBox(height: 12),
-              _JobCard(job: job, onCancel: running ? _cancelJob : null),
-            ],
-            if (settings.hasFineTunedModel) ...[
-              const SizedBox(height: 12),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.check_circle_outline),
-                  title: const Text('Fine-tuned model saved'),
-                  subtitle: Text(settings.fineTunedModel!),
-                  trailing: TextButton(
-                    onPressed: () => ref
-                        .read(settingsProvider.notifier)
-                        .edit(
-                          (s) => s.copyWith(
-                            clearFineTunedModel: true,
-                            mode: TrainingMode.styleMemory,
-                          ),
-                        ),
-                    child: const Text('Forget'),
+                GestureDetector(
+                  onTap: () => ref.read(settingsProvider.notifier).edit(
+                    (s) => s.copyWith(
+                      clearFineTunedModel: true,
+                      mode: TrainingMode.styleMemory,
+                    ),
+                  ),
+                  child: Text(
+                    'Forget',
+                    style: Type.strong(size: 13, color: Paper.accent),
                   ),
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
+              ],
+            ),
+          ),
+      ],
     );
   }
+}
+
+class _DatasetCard extends StatelessWidget {
+  const _DatasetCard({
+    required this.estimate,
+    required this.settings,
+    required this.epochs,
+    required this.locked,
+    required this.onEpochs,
+  });
+
+  final FineTuneEstimate estimate;
+  final AppSettings settings;
+  final int epochs;
+  final bool locked;
+  final ValueChanged<int> onEpochs;
+
+  @override
+  Widget build(BuildContext context) => PaperCard(
+    padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const MonoLabel('The dataset', spacing: 0.12),
+        const SizedBox(height: 12),
+        FigureRow(
+          'Training examples',
+          estimate.exampleCount.toString(),
+          emphasis: true,
+        ),
+        FigureRow('Base model', settings.fineTuneBaseModel),
+        FigureRow('Context per example', 'up to ${settings.contextTurns} turns'),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.only(top: 12),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Paper.dividerFirm)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Passes over the data',
+                  style: Type.prose(size: 13, color: Paper.tertiary),
+                ),
+              ),
+              _Nudge(
+                icon: Icons.remove,
+                onTap: locked || epochs <= 1 ? null : () => onEpochs(epochs - 1),
+              ),
+              SizedBox(
+                width: 40,
+                child: Text(
+                  '$epochs',
+                  textAlign: TextAlign.center,
+                  style: Type.numeric(size: 15),
+                ),
+              ),
+              _Nudge(
+                icon: Icons.add,
+                onTap: locked || epochs >= 10
+                    ? null
+                    : () => onEpochs(epochs + 1),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Estimated cost ${estimate.formattedUsd}',
+          style: Type.display(22),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '~${estimate.estimatedTotalTokens} training tokens at '
+          '${Pricing.formatUsd(estimate.usdPerMillionTokens)} per million. '
+          'An estimate, not a quote.',
+          style: Type.prose(size: 12.5, color: Paper.muted, height: 1.45),
+        ),
+      ],
+    ),
+  );
+}
+
+class _Nudge extends StatelessWidget {
+  const _Nudge({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        color: onTap == null ? Paper.bg : Paper.panel,
+        borderRadius: Corner.all(Corner.pill),
+      ),
+      child: Icon(
+        icon,
+        size: 16,
+        color: onTap == null ? Paper.placeholder : Paper.ink,
+      ),
+    ),
+  );
 }
 
 class _JobCard extends StatelessWidget {
@@ -358,65 +461,105 @@ class _JobCard extends StatelessWidget {
   final VoidCallback? onCancel;
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => InkCard(
+    radius: Corner.card,
+    padding: const EdgeInsets.all(18),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Text(
-                  job.status.label,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                if (!job.isTerminal)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
+            Expanded(
+              child: Text(
+                job.status.label,
+                style: Type.strong(size: 15, color: Paper.onInk, height: 1.3),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text('Job ${job.id}', style: const TextStyle(fontSize: 12)),
-            if (job.trainedTokens != null)
-              Text(
-                '${job.trainedTokens} tokens trained',
-                style: const TextStyle(fontSize: 12),
-              ),
-            if (job.fineTunedModel != null)
-              Text(job.fineTunedModel!, style: const TextStyle(fontSize: 12)),
-            if (job.error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                job.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            if (!job.isTerminal) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'This runs on OpenAI and can take a while. You can leave this '
-                'screen; the job is picked back up next time you open it.',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
-            if (onCancel != null) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: onCancel,
-                  child: const Text('Cancel job'),
+            if (!job.isTerminal)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Paper.amber,
                 ),
               ),
-            ],
           ],
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 10),
+        Text(
+          job.id,
+          style: Type.numeric(
+            size: 12,
+            color: const Color(0x99FAF7F0),
+            weight: FontWeight.w400,
+          ),
+        ),
+        if (job.trainedTokens != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            '${job.trainedTokens} tokens trained',
+            style: Type.numeric(
+              size: 12,
+              color: Paper.amber,
+              weight: FontWeight.w400,
+            ),
+          ),
+        ],
+        if (job.fineTunedModel != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            job.fineTunedModel!,
+            style: Type.numeric(
+              size: 12,
+              color: Paper.amber,
+              weight: FontWeight.w400,
+            ),
+          ),
+        ],
+        if (job.error != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            job.error!,
+            style: Type.prose(
+              size: 13,
+              color: const Color(0xFFE9A98C),
+              height: 1.45,
+            ),
+          ),
+        ],
+        if (!job.isTerminal) ...[
+          const SizedBox(height: 10),
+          Text(
+            'This runs on OpenAI and can take hours. You can leave — the '
+            'job is picked back up next time you open this screen.',
+            style: Type.prose(
+              size: 12,
+              color: const Color(0x80FAF7F0),
+              height: 1.45,
+            ),
+          ),
+        ],
+        if (onCancel != null) ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: onCancel,
+            child: Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                borderRadius: Corner.all(Corner.small),
+                border: Border.all(color: const Color(0x40FAF7F0), width: 1.5),
+              ),
+              child: Center(
+                child: Text(
+                  'Cancel the job',
+                  style: Type.strong(size: 14, color: Paper.onInk),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
 }

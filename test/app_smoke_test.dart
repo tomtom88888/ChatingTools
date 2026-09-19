@@ -119,9 +119,14 @@ void main() {
   testWidgets('with no key saved, the app opens on setup', (tester) async {
     await pumpApp(tester);
 
-    expect(find.text('Replies in your own words'), findsOneWidget);
-    expect(find.text('OpenAI API key'), findsOneWidget);
-    expect(find.text('Check and save'), findsOneWidget);
+    expect(find.text('Your OpenAI API key'), findsOneWidget);
+    expect(find.text('Check key & continue'), findsOneWidget);
+    // The privacy promise is made before the key is asked for.
+    expect(find.text('WHERE YOUR WORDS GO'), findsOneWidget);
+    expect(
+      find.text('Your chat file stays on this phone. Always.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a malformed key is rejected without a network call', (
@@ -129,28 +134,30 @@ void main() {
   ) async {
     await pumpApp(tester);
 
+    // The design dims the button until there is something to check, so the
+    // frame has to land before it can be tapped.
     await tester.enterText(find.byType(TextField), 'not-a-key');
-    await tester.tap(find.text('Check and save'));
+    await tester.pump();
+    await tester.tap(find.text('Check key & continue'));
     await tester.pump();
 
-    expect(find.textContaining('start with "sk-"'), findsOneWidget);
+    expect(find.textContaining('OpenAI keys start with sk-'), findsOneWidget);
   });
 
   testWidgets('with a key but nothing learned, home says so', (tester) async {
     await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij');
 
-    expect(find.text('ReplyLikeMe'), findsOneWidget);
-    expect(find.text('Nothing learned yet'), findsOneWidget);
-    expect(find.text('Train on a chat export'), findsOneWidget);
+    expect(find.text('REPLYLIKEME'), findsOneWidget);
+    expect(find.text("It doesn't know you yet."), findsOneWidget);
+    expect(find.text('Teach it your voice'), findsOneWidget);
 
-    // Suggesting a reply is disabled until there is something to imitate.
-    final suggest = tester.widget<ListTile>(
-      find.ancestor(
-        of: find.text('Suggest a reply'),
-        matching: find.byType(ListTile),
-      ),
+    // Writing a reply is locked until there is something to imitate.
+    expect(find.text('Write a reply'), findsOneWidget);
+    expect(
+      find.text('Nothing learned yet \u2014 teach it first'),
+      findsOneWidget,
     );
-    expect(suggest.enabled, isFalse);
+    expect(find.byIcon(Icons.lock_outline), findsOneWidget);
   });
 
   testWidgets('a trained memory is summarised on home', (tester) async {
@@ -163,19 +170,18 @@ void main() {
       ),
     );
 
-    expect(find.text('1 exchanges learned'), findsOneWidget);
-    expect(find.text('Robin'), findsOneWidget);
+    // The hero names who it knows and how much of you it read.
     expect(find.text('Sam'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('of your replies learned'), findsOneWidget);
+    expect(find.text('Robin (me) \u2192 Sam'), findsOneWidget);
     expect(find.textContaining('text-embedding-3-small'), findsOneWidget);
-    expect(find.text('Retrain from a new export'), findsOneWidget);
 
-    final suggest = tester.widget<ListTile>(
-      find.ancestor(
-        of: find.text('Suggest a reply'),
-        matching: find.byType(ListTile),
-      ),
-    );
-    expect(suggest.enabled, isTrue);
+    // Trained, writing leads and refreshing is the secondary action.
+    expect(find.text('Write a reply'), findsOneWidget);
+    expect(find.text('From a screenshot of your chat'), findsOneWidget);
+    expect(find.text('Refresh the memory'), findsOneWidget);
+    expect(find.byIcon(Icons.lock_outline), findsNothing);
   });
 
   testWidgets('settings opens and shows the masked key and defaults', (
@@ -202,6 +208,7 @@ void main() {
 
     await scrollTo(tester, find.text('Style memory'));
     expect(find.text('Style memory'), findsOneWidget);
+    expect(find.text('Fine-tuned'), findsOneWidget);
 
     await scrollTo(tester, find.text('Delete all my data'));
     expect(find.text('Delete all my data'), findsOneWidget);
