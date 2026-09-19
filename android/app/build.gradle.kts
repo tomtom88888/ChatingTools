@@ -6,7 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.replylikeme"
-    compileSdk = flutter.compileSdkVersion
+    // Flutter's default is 36, but receive_sharing_intent 1.9.0 publishes AAR
+    // metadata requiring its consumers to compile against 37, which fails
+    // :app:checkReleaseAarMetadata. compileSdk only controls which APIs are
+    // available at compile time; targetSdk below stays on Flutter's default, so
+    // no runtime behaviour changes.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
