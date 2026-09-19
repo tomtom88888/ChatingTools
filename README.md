@@ -55,46 +55,29 @@ model id. Generation still sends the retrieved real examples as context.
 - Android SDK 21+ / iOS 13+
 - An OpenAI API key with credit on it
 
-### Bootstrap
-
-This repository holds the Dart source, the tests, and the two platform files
-that carry real configuration (`android/app/src/main/AndroidManifest.xml` and
-`ios/Runner/Info.plist`). The rest of the Android and iOS scaffolding is
-generated, because it is tied to your Flutter version and your bundle id:
+### Getting it running
 
 ```bash
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
-
-# Generates the platform folders around the files already committed.
-# Existing files are left alone, so the manifest and Info.plist survive.
-flutter create . \
-  --project-name replylikeme \
-  --org com.example.replylikeme \
-  --platforms=android,ios
-
 flutter pub get
-flutter test
+flutter test          # 121 tests, no network or device needed
+flutter run           # on a connected device or emulator
 ```
 
-Replace `com.example.replylikeme` with your own reverse-domain id before
-publishing anything.
+The Android and iOS projects are committed, so a clone builds as-is. The bundle
+id is `com.example.replylikeme` — change it before you publish anything:
 
-After `flutter create`, check that:
+- `android/app/build.gradle.kts` → `namespace` and `applicationId`
+- `ios/Runner.xcodeproj/project.pbxproj` → `PRODUCT_BUNDLE_IDENTIFIER`
+  (or set it in Xcode under Runner → Signing & Capabilities)
 
-- `android/app/src/main/AndroidManifest.xml` still contains the `SEND` intent
-  filters and `android:launchMode="singleTask"` (it should — `flutter create`
-  does not overwrite existing files).
-- `ios/Runner/Info.plist` still contains `NSPhotoLibraryUsageDescription`.
-- `android/app/build.gradle(.kts)` has `minSdk = 21` or higher.
+Then rename `android/app/src/main/kotlin/com/example/replylikeme/` to match.
 
-### Running and building
+### Building a release
 
 ```bash
-flutter run                      # on a connected device or emulator
-flutter test                     # unit tests
 flutter analyze                  # lints
-
 flutter build apk --release      # Android
 flutter build appbundle --release
 flutter build ios --release      # iOS (needs Xcode and a signing identity)
