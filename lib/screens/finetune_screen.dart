@@ -352,7 +352,7 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
 }
 
 class _JobCard extends StatelessWidget {
-  const _JobCard({required this.job, this.onCancel, super.key});
+  const _JobCard({required this.job, this.onCancel});
 
   final FineTuneJob job;
   final VoidCallback? onCancel;

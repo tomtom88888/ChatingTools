@@ -212,6 +212,26 @@ void main() {
       expect(chat.unparsedLineCount, 3);
     });
 
+    test('a system line containing a colon is not read as a message', () {
+      final chat = WhatsAppParser.parse(
+        '12/03/2023, 19:45 - Sam: hi\n'
+        '12/03/2023, 19:46 - Sam changed the subject to "Trip: Italy"\n'
+        '12/03/2023, 19:47 - Robin: nice\n',
+      );
+      expect(chat.senderMessageCounts, {'Sam': 1, 'Robin': 1});
+      expect(chat.systemCount, 1);
+      expect(chat.turns, hasLength(2));
+    });
+
+    test('a colon inside a very long system line is not a sender', () {
+      final chat = WhatsAppParser.parse(
+        '12/03/2023, 19:45 - Robin created a group with a name that runs on '
+        'well past fifty characters: finally a colon\n',
+      );
+      expect(chat.systemCount, 1);
+      expect(chat.senderMessageCounts, isEmpty);
+    });
+
     test('an export with only system lines yields no turns', () {
       final chat = WhatsAppParser.parse(
         '12/03/2023, 19:44 - Messages and calls are end-to-end encrypted.\n',

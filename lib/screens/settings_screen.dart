@@ -364,7 +364,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 enum _WipeChoice { keepKey, everything }
 
 class _Section extends StatelessWidget {
-  const _Section(this.title, {super.key});
+  const _Section(this.title);
 
   final String title;
 
@@ -383,8 +383,7 @@ class _ModelField extends StatefulWidget {
     required this.value,
     required this.suggestions,
     required this.onChanged,
-    this.helper,
-    super.key,
+    this.helper
   });
 
   final String label;
@@ -464,8 +463,7 @@ class _NumberTile extends StatelessWidget {
     required this.max,
     required this.onChanged,
     this.step = 1,
-    this.helper,
-    super.key,
+    this.helper
   });
 
   final String label;

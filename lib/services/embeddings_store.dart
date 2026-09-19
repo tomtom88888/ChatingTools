@@ -183,8 +183,8 @@ class SqfliteExchangeStore implements ExchangeStore {
     final contextJson = jsonDecode(row['context_json']! as String);
     final context = contextJson is List
         ? contextJson
-              .whereType<Map>()
-              .map((m) => ChatTurn.fromJson(m.cast<String, Object?>()))
+              .whereType<Map<String, Object?>>()
+              .map(ChatTurn.fromJson)
               .toList(growable: false)
         : const <ChatTurn>[];
     final ts = row['ts'];

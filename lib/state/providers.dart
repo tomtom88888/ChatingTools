@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../services/embeddings_store.dart';
+import '../services/exchange_store.dart';
 import '../services/finetune_service.dart';
 import '../services/openai_service.dart';
 import '../services/reply_generator.dart';
@@ -20,7 +21,8 @@ final settingsStoreProvider = Provider<SettingsStore>(
   (ref) => const SettingsStore(),
 );
 
-final exchangeStoreProvider = Provider<SqfliteExchangeStore>((ref) {
+/// Typed as the interface so tests can substitute an in-memory store.
+final exchangeStoreProvider = Provider<ExchangeStore>((ref) {
   final store = SqfliteExchangeStore();
   ref.onDispose(store.close);
   return store;
@@ -51,18 +53,16 @@ final apiKeyProvider = AsyncNotifierProvider<ApiKeyNotifier, String?>(
   ApiKeyNotifier.new,
 );
 
-final hasApiKeyProvider = Provider<bool>((ref) {
-  final key = ref.watch(apiKeyProvider).value;
-  return key != null && key.isNotEmpty;
-});
-
 // ------------------------------------------------------------------- settings
 
 class SettingsNotifier extends AsyncNotifier<AppSettings> {
   @override
   Future<AppSettings> build() => ref.read(settingsStoreProvider).load();
 
-  Future<void> update(AppSettings next) async {
+  /// Persists [next] and publishes it.
+  ///
+  /// Not called `update`: AsyncNotifier already defines that.
+  Future<void> replace(AppSettings next) async {
     await ref.read(settingsStoreProvider).save(next);
     state = AsyncValue.data(next);
   }
@@ -70,7 +70,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   /// Applies a change to the current settings, loading them first if needed.
   Future<void> edit(AppSettings Function(AppSettings current) change) async {
     final current = state.value ?? await future;
-    await update(change(current));
+    await replace(change(current));
   }
 }
 

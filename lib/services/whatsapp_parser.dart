@@ -42,11 +42,16 @@ class WhatsAppParser {
     r'(?<rest>.*)$',
   );
 
-  /// Splits `Alice: hello` into sender and body. Sender names are capped and
-  /// may not contain a colon, which is what separates a real message from a
-  /// system line such as `Alice changed the group description`.
+  /// Splits `Alice: hello` into sender and body.
+  ///
+  /// A sender name may not contain a colon, which is what tells a real message
+  /// apart from a system line such as `Alice changed the group description`.
+  /// It also may not contain a quote and is capped at 50 characters, so a
+  /// system line that happens to contain a colon —
+  /// `Alice changed the subject to "Trip: Italy"` — is not mistaken for a
+  /// message from a very long-named sender.
   static final RegExp _senderSplit = RegExp(
-    r'^(?<sender>[^:\n]{1,80}?):[ \u00a0]?(?<body>.*)$',
+    r'^(?<sender>[^:"\n]{1,50}?):[ \u00a0]?(?<body>.*)$',
   );
 
   static final RegExp _editedMarker = RegExp(

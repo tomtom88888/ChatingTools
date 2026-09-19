@@ -282,7 +282,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.chat, super.key});
+  const _SummaryCard({required this.chat});
 
   final ParsedChat chat;
 
@@ -340,7 +340,7 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip(this.label, {super.key});
+  const _Chip(this.label);
 
   final String label;
 
@@ -355,8 +355,7 @@ class _NamesCard extends StatelessWidget {
     required this.myName,
     required this.theirName,
     required this.enabled,
-    required this.onChanged,
-    super.key,
+    required this.onChanged
   });
 
   final List<String> senders;
@@ -429,8 +428,7 @@ class _BuildCard extends ConsumerWidget {
     required this.builtCount,
     required this.onBuild,
     required this.onCancel,
-    required this.onFineTune,
-    super.key,
+    required this.onFineTune
   });
 
   final List<Exchange> exchanges;
@@ -541,8 +539,7 @@ class _SenderDropdown extends StatelessWidget {
     required this.value,
     required this.senders,
     required this.enabled,
-    required this.onChanged,
-    super.key,
+    required this.onChanged
   });
 
   final String label;

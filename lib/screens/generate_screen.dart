@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -308,8 +306,7 @@ class _ExtractedRow extends StatelessWidget {
     required this.message,
     required this.settings,
     required this.onToggleSide,
-    required this.onEdit,
-    super.key,
+    required this.onEdit
   });
 
   final ExtractedMessage message;

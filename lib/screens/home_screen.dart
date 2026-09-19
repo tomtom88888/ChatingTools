@@ -35,7 +35,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await ShareIntake.initial();
-      if (initial != null && mounted) _openTrainingFor(initial);
+      if (initial != null && mounted) unawaited(_openTrainingFor(initial));
     });
   }
 
@@ -127,8 +127,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 class _StyleMemoryCard extends StatelessWidget {
   const _StyleMemoryCard({
     required this.stats,
-    required this.settings,
-    super.key,
+    required this.settings
   });
 
   final AsyncValue<StyleMemoryStats?> stats;
@@ -209,7 +208,7 @@ class _StyleMemoryCard extends StatelessWidget {
 }
 
 class _Detail extends StatelessWidget {
-  const _Detail(this.label, this.value, {super.key});
+  const _Detail(this.label, this.value);
 
   final String label;
   final String value;
@@ -244,8 +243,7 @@ class _ActionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.enabled = true,
-    super.key,
+    this.enabled = true
   });
 
   final IconData icon;

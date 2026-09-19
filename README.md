@@ -230,7 +230,7 @@ lib/
   state/providers.dart       Riverpod providers and notifiers
   screens/                   root, setup, home, train, generate, finetune, settings
   widgets/failure_text.dart  turns any error into a readable sentence
-test/                        113 unit tests
+test/                        121 tests (115 unit, 6 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -252,8 +252,16 @@ test/fixtures/               synthetic Android and iOS exports
 flutter test
 ```
 
-113 tests cover the parser against synthetic Android and iOS exports, the
+121 tests, and no network or device is needed for any of them.
+
+115 unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader, the vector maths, the OpenAI client's error mapping and
 retries against a scripted transport, prompt construction, JSONL generation and
-cost estimation, and the style-memory build and retrieval loop. No network and
-no device are needed.
+cost estimation, and the style-memory build and retrieval loop.
+
+6 widget tests boot the real app with an in-memory style memory and a stubbed
+key: that setup appears when no key is saved, that a malformed key is rejected
+before any request is made, that home reflects an empty and a trained memory
+(including disabling reply suggestions until there is something to imitate),
+that Settings shows the key masked and never in full, and that "delete all my
+data" really empties the store.
