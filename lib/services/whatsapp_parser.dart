@@ -45,7 +45,9 @@ class WhatsAppParser {
   /// Splits `Alice: hello` into sender and body. Sender names are capped and
   /// may not contain a colon, which is what separates a real message from a
   /// system line such as `Alice changed the group description`.
-  static final RegExp _senderSplit = RegExp(r'^(?<sender>[^:\n]{1,80}?):[ \u00a0]?(?<body>.*)$');
+  static final RegExp _senderSplit = RegExp(
+    r'^(?<sender>[^:\n]{1,80}?):[ \u00a0]?(?<body>.*)$',
+  );
 
   static final RegExp _editedMarker = RegExp(
     r'\s*<[^<>]*(?:edited|bearbeitet|modifi\w*)[^<>]*>\s*$',
@@ -119,7 +121,9 @@ class WhatsAppParser {
         unparsedLineCount: lines.where((l) => l.trim().isNotEmpty).length,
       );
     }
-    final format = iosHits >= androidHits ? ExportFormat.ios : ExportFormat.android;
+    final format = iosHits >= androidHits
+        ? ExportFormat.ios
+        : ExportFormat.android;
     final dateOrder = _inferDateOrder(dateStrings);
 
     // Pass 2 — build messages, folding continuation lines into their parent.
@@ -411,7 +415,9 @@ class WhatsAppParser {
       }
     }
 
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23) {
+      return null;
+    }
     return DateTime(year, month, day, hour, minute, second);
   }
 

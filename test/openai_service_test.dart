@@ -41,8 +41,14 @@ void main() {
         return jsonResponse({
           'data': [
             // Deliberately out of order: the API documents it may be.
-            {'index': 1, 'embedding': [0.0, 1.0]},
-            {'index': 0, 'embedding': [1.0, 0.0]},
+            {
+              'index': 1,
+              'embedding': [0.0, 1.0],
+            },
+            {
+              'index': 0,
+              'embedding': [1.0, 0.0],
+            },
           ],
         });
       });
@@ -61,20 +67,30 @@ void main() {
       expect(sent!['dimensions'], 512);
     });
 
-    test('omits dimensions for models that do not support shortening', () async {
-      Map<String, Object?>? sent;
-      final service = serviceThat((request) async {
-        sent = jsonDecode(request.body) as Map<String, Object?>;
-        return jsonResponse({
-          'data': [
-            {'index': 0, 'embedding': [1.0]},
-          ],
+    test(
+      'omits dimensions for models that do not support shortening',
+      () async {
+        Map<String, Object?>? sent;
+        final service = serviceThat((request) async {
+          sent = jsonDecode(request.body) as Map<String, Object?>;
+          return jsonResponse({
+            'data': [
+              {
+                'index': 0,
+                'embedding': [1.0],
+              },
+            ],
+          });
         });
-      });
 
-      await service.embed(['x'], model: 'some-other-embedder', dimensions: 512);
-      expect(sent!.containsKey('dimensions'), isFalse);
-    });
+        await service.embed(
+          ['x'],
+          model: 'some-other-embedder',
+          dimensions: 512,
+        );
+        expect(sent!.containsKey('dimensions'), isFalse);
+      },
+    );
 
     test('never calls out for an empty batch', () async {
       var calls = 0;
@@ -90,7 +106,10 @@ void main() {
       final service = serviceThat(
         (request) async => jsonResponse({
           'data': [
-            {'index': 0, 'embedding': [1.0]},
+            {
+              'index': 0,
+              'embedding': [1.0],
+            },
           ],
         }),
       );
@@ -166,7 +185,9 @@ void main() {
       final service = serviceThat((request) async {
         calls++;
         if (calls == 1) {
-          return jsonResponse(const {'error': {'message': 'oops'}}, status: 500);
+          return jsonResponse(const {
+            'error': {'message': 'oops'},
+          }, status: 500);
         }
         return jsonResponse(chatReply('second time lucky'));
       }, maxRetries: 2);
@@ -218,32 +239,35 @@ void main() {
   });
 
   group('parameter compatibility', () {
-    test('falls back to max_tokens when the model rejects the new name', () async {
-      final bodies = <Map<String, Object?>>[];
-      final service = serviceThat((request) async {
-        final body = jsonDecode(request.body) as Map<String, Object?>;
-        bodies.add(body);
-        if (body.containsKey('max_completion_tokens')) {
-          return jsonResponse({
-            'error': {
-              'message': "Unsupported parameter: 'max_completion_tokens'",
-            },
-          }, status: 400);
-        }
-        return jsonResponse(chatReply('ok'));
-      });
+    test(
+      'falls back to max_tokens when the model rejects the new name',
+      () async {
+        final bodies = <Map<String, Object?>>[];
+        final service = serviceThat((request) async {
+          final body = jsonDecode(request.body) as Map<String, Object?>;
+          bodies.add(body);
+          if (body.containsKey('max_completion_tokens')) {
+            return jsonResponse({
+              'error': {
+                'message': "Unsupported parameter: 'max_completion_tokens'",
+              },
+            }, status: 400);
+          }
+          return jsonResponse(chatReply('ok'));
+        });
 
-      expect(
-        await service.chat(
-          model: 'legacy',
-          messages: const [],
-          maxOutputTokens: 100,
-        ),
-        'ok',
-      );
-      expect(bodies, hasLength(2));
-      expect(bodies.last['max_tokens'], 100);
-    });
+        expect(
+          await service.chat(
+            model: 'legacy',
+            messages: const [],
+            maxOutputTokens: 100,
+          ),
+          'ok',
+        );
+        expect(bodies, hasLength(2));
+        expect(bodies.last['max_tokens'], 100);
+      },
+    );
 
     test('drops temperature when the model insists on its default', () async {
       final bodies = <Map<String, Object?>>[];
@@ -295,45 +319,48 @@ void main() {
   group('vision', () {
     Uint8List fakePng() => Uint8List.fromList(List.filled(32, 7));
 
-    test('asks for JSON, sends the image inline, and parses the result', () async {
-      Map<String, Object?>? sent;
-      final service = serviceThat((request) async {
-        sent = jsonDecode(request.body) as Map<String, Object?>;
-        return jsonResponse(
-          chatReply(
-            jsonEncode({
-              'messages': [
-                {'sender': 'them', 'text': 'you coming?'},
-                {'sender': 'me', 'text': 'yeah 2 secs'},
-                {'sender': 'them', 'text': 'ok'},
-              ],
-            }),
-          ),
+    test(
+      'asks for JSON, sends the image inline, and parses the result',
+      () async {
+        Map<String, Object?>? sent;
+        final service = serviceThat((request) async {
+          sent = jsonDecode(request.body) as Map<String, Object?>;
+          return jsonResponse(
+            chatReply(
+              jsonEncode({
+                'messages': [
+                  {'sender': 'them', 'text': 'you coming?'},
+                  {'sender': 'me', 'text': 'yeah 2 secs'},
+                  {'sender': 'them', 'text': 'ok'},
+                ],
+              }),
+            ),
+          );
+        });
+
+        final messages = await service.extractConversation(
+          imageBytes: fakePng(),
+          model: 'gpt-5.6-terra',
+          imageMimeType: 'image/png',
         );
-      });
 
-      final messages = await service.extractConversation(
-        imageBytes: fakePng(),
-        model: 'gpt-5.6-terra',
-        imageMimeType: 'image/png',
-      );
+        expect(messages.map((m) => m.speaker), [
+          Speaker.them,
+          Speaker.me,
+          Speaker.them,
+        ]);
+        expect(messages.first.text, 'you coming?');
+        expect(sent!['response_format'], {'type': 'json_object'});
 
-      expect(messages.map((m) => m.speaker), [
-        Speaker.them,
-        Speaker.me,
-        Speaker.them,
-      ]);
-      expect(messages.first.text, 'you coming?');
-      expect(sent!['response_format'], {'type': 'json_object'});
-
-      final content =
-          ((sent!['messages'] as List).last as Map)['content'] as List;
-      final imagePart = content.whereType<Map>().firstWhere(
-        (part) => part['type'] == 'image_url',
-      );
-      final url = (imagePart['image_url'] as Map)['url'] as String;
-      expect(url, startsWith('data:image/png;base64,'));
-    });
+        final content =
+            ((sent!['messages'] as List).last as Map)['content'] as List;
+        final imagePart = content.whereType<Map<String, Object?>>().firstWhere(
+          (part) => part['type'] == 'image_url',
+        );
+        final url = (imagePart['image_url'] as Map)['url'] as String;
+        expect(url, startsWith('data:image/png;base64,'));
+      },
+    );
 
     test('rejects an empty screenshot before spending a request', () async {
       var calls = 0;

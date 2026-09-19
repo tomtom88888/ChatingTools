@@ -145,9 +145,7 @@ class SqfliteExchangeStore implements ExchangeStore {
     final exchanges = await all();
     if (exchanges.isEmpty || limit < 1) return const [];
 
-    final vectors = exchanges
-        .map((e) => e.vector)
-        .toList(growable: false);
+    final vectors = exchanges.map((e) => e.vector).toList(growable: false);
     // A dimension mismatch means the memory predates a settings change; let
     // VectorMath's ArgumentError surface so the UI can say "rebuild it".
     final indices = VectorMath.topK(query, vectors, limit);

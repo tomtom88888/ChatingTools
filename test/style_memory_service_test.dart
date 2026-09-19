@@ -66,10 +66,8 @@ class FakeStore implements ExchangeStore {
 ChatTurn turn(String sender, String text) =>
     ChatTurn(sender: sender, text: text, messageCount: 1);
 
-Exchange exchange(String theirText, String myReply) => Exchange(
-  context: [turn('Sam', theirText)],
-  reply: turn('Robin', myReply),
-);
+Exchange exchange(String theirText, String myReply) =>
+    Exchange(context: [turn('Sam', theirText)], reply: turn('Robin', myReply));
 
 void main() {
   /// Returns a deterministic vector per input so retrieval is checkable.
@@ -128,18 +126,13 @@ void main() {
       final store = FakeStore();
       final batchSizes = <int>[];
       final service = StyleMemoryService(
-        openai: embedderThat(
-          (input) => [1, 0],
-          onBatch: batchSizes.add,
-        ),
+        openai: embedderThat((input) => [1, 0], onBatch: batchSizes.add),
         store: store,
       );
 
       final progress = <StyleMemoryProgress>[];
       await service.build(
-        exchanges: [
-          for (var i = 0; i < 200; i++) exchange('q$i', 'a$i'),
-        ],
+        exchanges: [for (var i = 0; i < 200; i++) exchange('q$i', 'a$i')],
         myName: 'Robin',
         theirName: 'Sam',
         embeddingModel: 'text-embedding-3-small',
@@ -225,7 +218,10 @@ void main() {
         store: store,
       );
       await service.build(
-        exchanges: [exchange('pub tonight?', 'go on then'), exchange('cinema?', 'nah')],
+        exchanges: [
+          exchange('pub tonight?', 'go on then'),
+          exchange('cinema?', 'nah'),
+        ],
         myName: 'Robin',
         theirName: 'Sam',
         embeddingModel: 'text-embedding-3-small',
@@ -272,7 +268,8 @@ void main() {
       );
       final small = service.estimate([exchange('hi', 'yo')]);
       final large = service.estimate([
-        for (var i = 0; i < 100; i++) exchange('a much longer question $i', 'a$i'),
+        for (var i = 0; i < 100; i++)
+          exchange('a much longer question $i', 'a$i'),
       ]);
       expect(small.exchangeCount, 1);
       expect(large.exchangeCount, 100);

@@ -6,9 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:replylikeme/services/chat_export_reader.dart';
 
 void main() {
-  final androidExport = File(
-    'test/fixtures/android_export.txt',
-  ).readAsStringSync();
+  final androidExport = File('test/fixtures/android_export.txt')
+      .readAsStringSync();
 
   List<int> zipWith(Map<String, String> entries) {
     final archive = Archive();
@@ -64,7 +63,10 @@ void main() {
     test('is detected by magic number even without the extension', () {
       final bytes = zipWith({'chat.txt': androidExport});
       expect(ChatExportReader.looksLikeZip(bytes), isTrue);
-      expect(ChatExportReader.read(bytes, filename: 'share-target'), androidExport);
+      expect(
+        ChatExportReader.read(bytes, filename: 'share-target'),
+        androidExport,
+      );
     });
 
     test('picks the largest transcript when there are several', () {

@@ -203,7 +203,7 @@ class OpenAiService {
     // Some models return content as a list of typed parts.
     if (content is List) {
       return content
-          .whereType<Map>()
+          .whereType<Map<String, Object?>>()
           .map((part) => part['text'])
           .whereType<String>()
           .join();
@@ -231,8 +231,7 @@ class OpenAiService {
         'That screenshot is empty.',
       );
     }
-    final dataUri =
-        'data:$imageMimeType;base64,${base64Encode(imageBytes)}';
+    final dataUri = 'data:$imageMimeType;base64,${base64Encode(imageBytes)}';
 
     final raw = await _chat(
       model: model,
@@ -354,7 +353,7 @@ class OpenAiService {
     }
     final ids =
         data
-            .whereType<Map>()
+            .whereType<Map<String, Object?>>()
             .map((m) => m['id'])
             .whereType<String>()
             .toList()
@@ -377,8 +376,7 @@ class OpenAiService {
       );
 
     final response = await _send(
-      () async =>
-          http.Response.fromStream(await _client.send(request)),
+      () async => http.Response.fromStream(await _client.send(request)),
       // Uploads are not safe to replay as a MultipartRequest can only be sent
       // once, so no retries here.
       retries: 0,
@@ -455,7 +453,10 @@ class OpenAiService {
     return _decodeBody(response);
   }
 
-  Future<Map<String, Object?>> _getJson(String path, {Duration? timeout}) async {
+  Future<Map<String, Object?>> _getJson(
+    String path, {
+    Duration? timeout,
+  }) async {
     final response = await _send(
       () => _client.get(_uri(path), headers: _jsonHeaders),
       timeout: timeout ?? requestTimeout,

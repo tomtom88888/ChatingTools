@@ -20,10 +20,7 @@ abstract interface class ExchangeStore {
   Future<int> count();
 
   /// The [limit] stored exchanges whose context is closest to [query].
-  Future<List<ScoredExchange>> mostSimilar(
-    Float32List query, {
-    int limit = 8,
-  });
+  Future<List<ScoredExchange>> mostSimilar(Float32List query, {int limit = 8});
 
   /// Everything, oldest first — used to build the fine-tuning dataset.
   Future<List<StoredExchange>> all();

@@ -61,9 +61,8 @@ void main() {
         theirName: 'Sam',
         contextTurns: 10,
       );
-      final messages =
-          ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
-              .cast<Map<String, Object?>>();
+      final messages = ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
+          .cast<Map<String, Object?>>();
       expect(messages.map((m) => m['role']), [
         'system',
         'user',
@@ -75,14 +74,15 @@ void main() {
 
     test('ends every line with my reply as the assistant target', () {
       final jsonl = FineTuneService.buildJsonl(
-        [stored([turn('Sam', 'a'), turn('Robin', 'b'), turn('Sam', 'c')], 'd')],
+        [
+          stored([turn('Sam', 'a'), turn('Robin', 'b'), turn('Sam', 'c')], 'd'),
+        ],
         myName: 'Robin',
         theirName: 'Sam',
         contextTurns: 10,
       );
-      final messages =
-          ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
-              .cast<Map<String, Object?>>();
+      final messages = ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
+          .cast<Map<String, Object?>>();
       expect(messages.last['role'], 'assistant');
       expect(messages.last['content'], 'd');
       expect(messages[messages.length - 2]['role'], 'user');
@@ -99,9 +99,8 @@ void main() {
         theirName: 'Sam',
         contextTurns: 4,
       );
-      final messages =
-          ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
-              .cast<Map<String, Object?>>();
+      final messages = ((jsonDecode(jsonl.trim()) as Map)['messages']! as List)
+          .cast<Map<String, Object?>>();
       // system + 4 context turns + the target
       expect(messages, hasLength(6));
       expect(messages[1]['content'], 'turn 16');
@@ -162,14 +161,19 @@ void main() {
 
       expect(estimate.exampleCount, 12);
       expect(estimate.epochs, 3);
-      expect(estimate.estimatedTotalTokens, estimate.estimatedTokensPerEpoch * 3);
+      expect(
+        estimate.estimatedTotalTokens,
+        estimate.estimatedTokensPerEpoch * 3,
+      );
       expect(estimate.estimatedTokensPerEpoch, greaterThan(0));
       expect(estimate.estimatedUsd, greaterThan(0));
     });
 
     test('never shows a real cost as zero', () {
       final jsonl = FineTuneService.buildJsonl(
-        [stored([turn('Sam', 'hi')], 'yo')],
+        [
+          stored([turn('Sam', 'hi')], 'yo'),
+        ],
         myName: 'Robin',
         theirName: 'Sam',
         contextTurns: 10,
@@ -210,35 +214,35 @@ void main() {
 
     String jsonlWith(int examples) => FineTuneService.buildJsonl(
       [
-        for (var i = 0; i < examples; i++)
-          stored([turn('Sam', 'q$i')], 'a$i'),
+        for (var i = 0; i < examples; i++) stored([turn('Sam', 'q$i')], 'a$i'),
       ],
       myName: 'Robin',
       theirName: 'Sam',
       contextTurns: 10,
     );
 
-    test("refuses a dataset below OpenAI's minimum without uploading", () async {
-      var calls = 0;
-      final service = serviceThat((request, body) async {
-        calls++;
-        return ok(const {});
-      });
-      await expectLater(
-        FineTuneService(openai: service).start(
-          jsonl: jsonlWith(3),
-          baseModel: 'gpt-4o-mini-2024-07-18',
-        ),
-        throwsA(
-          isA<OpenAiException>().having(
-            (e) => e.message,
-            'message',
-            contains('at least 10 examples'),
+    test(
+      "refuses a dataset below OpenAI's minimum without uploading",
+      () async {
+        var calls = 0;
+        final service = serviceThat((request, body) async {
+          calls++;
+          return ok(const {});
+        });
+        await expectLater(
+          FineTuneService(openai: service)
+              .start(jsonl: jsonlWith(3), baseModel: 'gpt-4o-mini-2024-07-18'),
+          throwsA(
+            isA<OpenAiException>().having(
+              (e) => e.message,
+              'message',
+              contains('at least 10 examples'),
+            ),
           ),
-        ),
-      );
-      expect(calls, 0);
-    });
+        );
+        expect(calls, 0);
+      },
+    );
 
     test('uploads the file, then creates the job with it', () async {
       final paths = <String>[];
@@ -282,8 +286,7 @@ void main() {
         return http.Response(
           jsonEncode(const {
             'error': {
-              'message':
-                  'Fine-tuning is not available for this organization.',
+              'message': 'Fine-tuning is not available for this organization.',
             },
           }),
           403,
@@ -292,10 +295,8 @@ void main() {
       });
 
       await expectLater(
-        FineTuneService(openai: service).start(
-          jsonl: jsonlWith(12),
-          baseModel: 'gpt-4o-mini-2024-07-18',
-        ),
+        FineTuneService(openai: service)
+            .start(jsonl: jsonlWith(12), baseModel: 'gpt-4o-mini-2024-07-18'),
         throwsA(
           isA<OpenAiException>()
               .having((e) => e.kind, 'kind', OpenAiErrorKind.notAvailable)

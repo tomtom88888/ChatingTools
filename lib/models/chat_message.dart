@@ -31,7 +31,7 @@ class ChatMessage {
   final DateTime? timestamp;
 
   /// The message body, with media/deleted placeholders and the
-  /// "<This message was edited>" marker removed. Empty for non-text kinds.
+  /// `<This message was edited>` marker removed. Empty for non-text kinds.
   final String text;
 
   /// The body exactly as it appeared in the export, for display and debugging.

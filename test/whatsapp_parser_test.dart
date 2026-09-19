@@ -6,8 +6,7 @@ import 'package:replylikeme/models/parsed_chat.dart';
 import 'package:replylikeme/services/whatsapp_parser.dart';
 
 /// Both fixtures are synthetic — see test/fixtures/README.md.
-String _fixture(String name) =>
-    File('test/fixtures/$name').readAsStringSync();
+String _fixture(String name) => File('test/fixtures/$name').readAsStringSync();
 
 void main() {
   group('Android export', () {
@@ -124,9 +123,7 @@ void main() {
     });
 
     test('maps 12 AM to midnight of the next day', () {
-      final midnight = chat.messages.firstWhere(
-        (m) => m.text == 'yes. 8.30',
-      );
+      final midnight = chat.messages.firstWhere((m) => m.text == 'yes. 8.30');
       expect(midnight.timestamp, DateTime(2023, 3, 14, 0, 5));
     });
 
@@ -183,9 +180,7 @@ void main() {
     });
 
     test('handles the narrow no-break space before AM/PM', () {
-      final chat = WhatsAppParser.parse(
-        '12/03/2023, 7:45\u202fPM - Sam: yo\n',
-      );
+      final chat = WhatsAppParser.parse('12/03/2023, 7:45\u202fPM - Sam: yo\n');
       expect(chat.messages.single.timestamp, DateTime(2023, 3, 12, 19, 45));
     });
 
@@ -197,9 +192,7 @@ void main() {
     });
 
     test('reads ISO dates', () {
-      final chat = WhatsAppParser.parse(
-        '2023-03-12, 19:45 - Sam: yo\n',
-      );
+      final chat = WhatsAppParser.parse('2023-03-12, 19:45 - Sam: yo\n');
       expect(chat.messages.single.timestamp, DateTime(2023, 3, 12, 19, 45));
     });
   });
@@ -271,10 +264,7 @@ void main() {
     });
 
     test('an unknown name yields nothing rather than throwing', () {
-      expect(
-        WhatsAppParser.buildExchanges(chat.turns, me: 'Nobody'),
-        isEmpty,
-      );
+      expect(WhatsAppParser.buildExchanges(chat.turns, me: 'Nobody'), isEmpty);
     });
 
     test('rejects a context window smaller than one turn', () {

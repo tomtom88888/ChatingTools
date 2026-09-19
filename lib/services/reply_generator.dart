@@ -121,7 +121,9 @@ class ReplyGenerator {
   /// polished, punctuated, assistant-flavoured prose.
   static String buildSystemPrompt(AppSettings settings) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
-    final them = settings.theirName.isEmpty ? 'someone they know' : settings.theirName;
+    final them = settings.theirName.isEmpty
+        ? 'someone they know'
+        : settings.theirName;
     return 'You are writing a single WhatsApp message as $me, replying to '
         '$them.\n'
         '\n'
@@ -136,7 +138,7 @@ class ReplyGenerator {
         '- language, and any mixing or switching between languages mid-message\n'
         '\n'
         'Never explain yourself, never add a greeting or sign-off that $me '
-        "would not use, and never sound like an assistant. Do not mention that "
+        'would not use, and never sound like an assistant. Do not mention that '
         'you are an AI or that you were given examples.';
   }
 
@@ -257,7 +259,10 @@ class ReplyGenerator {
   /// Strips the quotes and labels models like to wrap a single message in.
   static String _tidy(String reply) {
     var out = reply.trim();
-    out = out.replaceFirst(RegExp(r'^(?:reply|message|option \d+)\s*:\s*', caseSensitive: false), '');
+    out = out.replaceFirst(
+      RegExp(r'^(?:reply|message|option \d+)\s*:\s*', caseSensitive: false),
+      '',
+    );
     if (out.length > 1) {
       const pairs = {'"': '"', "'": "'", '\u201c': '\u201d'};
       final closing = pairs[out[0]];

@@ -49,10 +49,11 @@ class ChatExportReader {
 
     // WhatsApp puts exactly one .txt transcript in the archive alongside the
     // media; if there are several, the largest is the transcript.
-    final candidates = archive.files
-        .where((f) => f.isFile && f.name.toLowerCase().endsWith('.txt'))
-        .toList()
-      ..sort((a, b) => b.size.compareTo(a.size));
+    final candidates =
+        archive.files
+            .where((f) => f.isFile && f.name.toLowerCase().endsWith('.txt'))
+            .toList()
+          ..sort((a, b) => b.size.compareTo(a.size));
 
     if (candidates.isEmpty) {
       throw const ChatExportException(

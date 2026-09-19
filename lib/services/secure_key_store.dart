@@ -10,7 +10,9 @@ class SecureKeyStore {
     : _storage =
           storage ??
           const FlutterSecureStorage(
-            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+            // Android encrypts by default in flutter_secure_storage 11.
+            // On iOS, keep the key off backups and out of reach until the
+            // device has been unlocked once since boot.
             iOptions: IOSOptions(
               accessibility: KeychainAccessibility.first_unlock_this_device,
             ),

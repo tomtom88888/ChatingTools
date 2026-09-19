@@ -37,7 +37,12 @@ enum OpenAiErrorKind {
 /// Nothing here ever contains the API key: only response bodies and status
 /// codes are quoted, never request headers.
 class OpenAiException implements Exception {
-  const OpenAiException(this.kind, this.message, {this.statusCode, this.retryAfter});
+  const OpenAiException(
+    this.kind,
+    this.message, {
+    this.statusCode,
+    this.retryAfter,
+  });
 
   final OpenAiErrorKind kind;
   final String message;
