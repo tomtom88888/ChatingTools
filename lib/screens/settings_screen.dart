@@ -148,6 +148,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           PaperCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _TapRow(
                   label: 'API key',
@@ -240,6 +241,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           PaperCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 StackedRow(
                   label: 'You',

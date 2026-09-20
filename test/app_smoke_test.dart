@@ -171,18 +171,17 @@ void main() {
       ),
     );
 
-    // The hero names who it knows and how much of you it read.
-    expect(find.text('Sam'), findsOneWidget);
+    // The hero names who it knows and how much of you it read. 'Sam' appears
+    // twice now: once in the hero, once in the learning-from pair below it.
+    expect(find.text('Sam'), findsNWidgets(2));
     expect(find.text('1'), findsOneWidget);
     expect(find.text('of your replies learned'), findsOneWidget);
-    // Names carry bidi isolate marks so a Hebrew or Arabic name cannot
-    // reorder the English sentence around it.
-    expect(
-      find.text(
-        '${bidiIsolate("Robin")} (me) \u2192 ${bidiIsolate("Sam")}',
-      ),
-      findsOneWidget,
-    );
+    // The two names are separate widgets, so their order is fixed by the
+    // widget list rather than by bidirectional text resolution.
+    final pair = tester.widget<NamePairValue>(find.byType(NamePairValue));
+    expect(pair.me, 'Robin');
+    expect(pair.them, 'Sam');
+
     expect(find.textContaining('text-embedding-3-small'), findsOneWidget);
 
     // Trained, writing leads and refreshing is the secondary action.

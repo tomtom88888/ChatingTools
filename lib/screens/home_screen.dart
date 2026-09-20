@@ -234,13 +234,16 @@ class _MemoryDetails extends StatelessWidget {
   Widget build(BuildContext context) => PaperCard(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     child: Column(
+      // Without this the rows shrink to their content and centre themselves,
+      // taking the dividers with them; the design runs both full width.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         StackedRow(
           label: 'Learning from',
-          value:
-              '${bidiIsolate(stats.myName.isEmpty ? "you" : stats.myName)}'
-              ' (me) → '
-              '${bidiIsolate(stats.theirName.isEmpty ? "them" : stats.theirName)}',
+          valueChild: NamePairValue(
+            me: stats.myName.isEmpty ? 'you' : stats.myName,
+            them: stats.theirName.isEmpty ? 'them' : stats.theirName,
+          ),
         ),
         StackedRow(
           label: 'Fingerprints',

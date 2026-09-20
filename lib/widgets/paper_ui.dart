@@ -452,19 +452,30 @@ class Notice extends StatelessWidget {
 class StackedRow extends StatelessWidget {
   const StackedRow({
     required this.label,
-    required this.value,
+    this.value,
+    this.valueChild,
     this.mono = false,
     this.last = false,
     super.key,
-  });
+  }) : assert(
+         value != null || valueChild != null,
+         'a row needs either a value or a valueChild',
+       );
 
   final String label;
-  final String value;
+
+  /// Plain text value. Use [valueChild] instead when the value mixes scripts.
+  final String? value;
+
+  /// A built value, for rows whose content cannot be a single string.
+  final Widget? valueChild;
+
   final bool mono;
   final bool last;
 
   @override
   Widget build(BuildContext context) => Container(
+    width: double.infinity,
     padding: const EdgeInsets.symmetric(vertical: 11),
     decoration: BoxDecoration(
       border: last
@@ -474,17 +485,57 @@ class StackedRow extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Type.prose(size: 12, color: Paper.tertiary, height: 1.3)),
-        const SizedBox(height: 3),
         Text(
-          value,
-          style: mono
-              ? Type.numeric(size: 12.5, weight: FontWeight.w400)
-              : Type.strong(size: 14, height: 1.35),
+          label,
+          style: Type.prose(size: 12, color: Paper.tertiary, height: 1.3),
         ),
+        const SizedBox(height: 3),
+        valueChild ??
+            Text(
+              value!,
+              style: mono
+                  ? Type.numeric(size: 12.5, weight: FontWeight.w400)
+                  : Type.strong(size: 14, height: 1.35),
+            ),
       ],
     ),
   );
+}
+
+/// Renders `<me> (me) -> <them>` as three separate pieces in a pinned
+/// left-to-right row.
+///
+/// Packed into one string this reorders when either name is written in a
+/// right-to-left script: the bidirectional algorithm resolves the neutral
+/// characters between two such names against them, and the pair swaps, so the
+/// app appears to have learned the wrong person. Separate widgets in a Row
+/// with an explicit direction cannot reorder \u2014 position is decided by the
+/// widget list, not by the text.
+class NamePairValue extends StatelessWidget {
+  const NamePairValue({required this.me, required this.them, super.key});
+
+  final String me;
+  final String them;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Type.strong(size: 14, height: 1.35);
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(me, style: style, textDirection: TextDirection.ltr),
+          Text(
+            ' (me) \u2192 ',
+            style: style.copyWith(color: Paper.tertiary),
+            textDirection: TextDirection.ltr,
+          ),
+          Text(them, style: style, textDirection: TextDirection.ltr),
+        ],
+      ),
+    );
+  }
 }
 
 /// A right-aligned figure against a left-aligned name.

@@ -144,19 +144,49 @@ void main() {
       expect(bidiIsolate(''), '');
     });
 
-    testWidgets('"learning from" keeps me first and them second', (
+    testWidgets('"learning from" puts me on the left and them on the right', (
       tester,
     ) async {
       await pumpHome(tester, stats: hebrewStats());
 
-      // Both names carry isolate marks, so the bidirectional algorithm
-      // resolves each on its own and leaves the English around them alone.
-      // Without these the two names render swapped.
+      // Measured, not asserted against a string: the two names are separate
+      // widgets in a pinned left-to-right row, so a Hebrew name cannot swap
+      // them the way it does inside one mixed-script sentence.
+      final pair = find.byType(NamePairValue);
+      expect(pair, findsOneWidget);
+
+      final meRect = tester.getRect(
+        find.descendant(of: pair, matching: find.text('תום')),
+      );
+      final themRect = tester.getRect(
+        find.descendant(of: pair, matching: find.text('מאיה')),
+      );
       expect(
-        find.text(
-          '\u2068תום\u2069 (me) \u2192 \u2068מאיה\u2069',
-        ),
-        findsOneWidget,
+        meRect.left,
+        lessThan(themRect.left),
+        reason: 'the two names render in the wrong order',
+      );
+    });
+
+    testWidgets('the detail rows run the full width of the card', (
+      tester,
+    ) async {
+      await pumpHome(tester, stats: hebrewStats());
+
+      // Centred, shrink-wrapped rows leave the dividers as short stubs in the
+      // middle of the card; the design runs them edge to edge.
+      final rows = tester.widgetList<Widget>(find.byType(StackedRow));
+      expect(rows.length, 3);
+
+      final widths = find
+          .byType(StackedRow)
+          .evaluate()
+          .map((e) => tester.getRect(find.byWidget(e.widget)).width)
+          .toSet();
+      expect(
+        widths.length,
+        1,
+        reason: 'rows should all be the same, full-card width',
       );
     });
   });
