@@ -147,7 +147,7 @@ class _HomeFrame extends StatelessWidget {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const MonoLabel('ReplyLikeMe'),
+          const Expanded(child: MonoLabel('ReplyLikeMe')),
           GestureDetector(
             onTap: onSettings,
             child: Container(
@@ -201,9 +201,11 @@ class _KnowsYou extends StatelessWidget {
               style: Type.numeric(size: 30, color: Paper.amber),
             ),
             const SizedBox(width: 8),
-            Text(
-              'of your replies learned',
-              style: Type.prose(size: 14, color: const Color(0x9EFAF7F0)),
+            Flexible(
+              child: Text(
+                'of your replies learned',
+                style: Type.prose(size: 14, color: const Color(0x9EFAF7F0)),
+              ),
             ),
           ],
         ),
@@ -236,8 +238,9 @@ class _MemoryDetails extends StatelessWidget {
         StackedRow(
           label: 'Learning from',
           value:
-              '${stats.myName.isEmpty ? "you" : stats.myName} (me) '
-              '→ ${stats.theirName.isEmpty ? "them" : stats.theirName}',
+              '${bidiIsolate(stats.myName.isEmpty ? "you" : stats.myName)}'
+              ' (me) → '
+              '${bidiIsolate(stats.theirName.isEmpty ? "them" : stats.theirName)}',
         ),
         StackedRow(
           label: 'Fingerprints',

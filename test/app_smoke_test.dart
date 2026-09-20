@@ -11,6 +11,7 @@ import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/screens/settings_screen.dart';
 import 'package:replylikeme/services/exchange_store.dart';
 import 'package:replylikeme/state/providers.dart';
+import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// In-memory style memory, so no database is touched.
@@ -174,7 +175,14 @@ void main() {
     expect(find.text('Sam'), findsOneWidget);
     expect(find.text('1'), findsOneWidget);
     expect(find.text('of your replies learned'), findsOneWidget);
-    expect(find.text('Robin (me) \u2192 Sam'), findsOneWidget);
+    // Names carry bidi isolate marks so a Hebrew or Arabic name cannot
+    // reorder the English sentence around it.
+    expect(
+      find.text(
+        '${bidiIsolate("Robin")} (me) \u2192 ${bidiIsolate("Sam")}',
+      ),
+      findsOneWidget,
+    );
     expect(find.textContaining('text-embedding-3-small'), findsOneWidget);
 
     // Trained, writing leads and refreshing is the secondary action.

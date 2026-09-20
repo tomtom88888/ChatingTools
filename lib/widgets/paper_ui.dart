@@ -27,6 +27,20 @@ class PaperScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The design's frame is measured from the edge of the screen, status bar
+    // included, which is how the iOS mock is drawn. On a phone with a taller
+    // notch or a three-button navigation bar that is not enough room, so each
+    // edge takes whichever is larger: the design's figure, or the system inset
+    // plus a little breathing space. Without this the footnote at the foot of
+    // every screen sits underneath the navigation bar.
+    final insets = MediaQuery.viewPaddingOf(context);
+    final frame = EdgeInsets.fromLTRB(
+      padding.left,
+      padding.top > insets.top + 16 ? padding.top : insets.top + 16,
+      padding.right,
+      padding.bottom > insets.bottom + 14 ? padding.bottom : insets.bottom + 14,
+    );
+
     final stacked = <Widget>[];
     for (var i = 0; i < children.length; i++) {
       if (i > 0) stacked.add(SizedBox(height: gap));
@@ -40,7 +54,7 @@ class PaperScreen extends StatelessWidget {
     final Widget body;
     if (bottom == null) {
       body = SingleChildScrollView(
-        child: Padding(padding: padding, child: column),
+        child: Padding(padding: frame, child: column),
       );
     } else {
       body = Column(
@@ -49,9 +63,9 @@ class PaperScreen extends StatelessWidget {
             child: SingleChildScrollView(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                  padding.left,
-                  padding.top,
-                  padding.right,
+                  frame.left,
+                  frame.top,
+                  frame.right,
                   gap,
                 ),
                 child: column,
@@ -60,10 +74,10 @@ class PaperScreen extends StatelessWidget {
           ),
           Padding(
             padding: EdgeInsets.fromLTRB(
-              padding.left,
+              frame.left,
               0,
-              padding.right,
-              padding.bottom,
+              frame.right,
+              frame.bottom,
             ),
             child: bottom,
           ),
@@ -73,10 +87,21 @@ class PaperScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Paper.bg,
-      body: SafeArea(bottom: false, child: body),
+      body: body,
     );
   }
 }
+
+/// Wraps a name in Unicode isolate marks before it is dropped into an English
+/// sentence.
+///
+/// Without this a Hebrew or Arabic name reorders the text around it: a row
+/// built as "\$me (me) -> \$them" renders with the two names swapped, which
+/// reads as though the app learned the wrong person. The isolate tells the
+/// bidirectional algorithm to resolve the name on its own and leave the
+/// sentence alone. Latin names are unaffected.
+String bidiIsolate(String name) =>
+    name.isEmpty ? name : '\u2068$name\u2069';
 
 /// The small uppercase mono label that titles a block.
 class MonoLabel extends StatelessWidget {

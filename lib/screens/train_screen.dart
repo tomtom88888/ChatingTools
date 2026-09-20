@@ -262,7 +262,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
           ],
         ),
         NumberedSteps([
-          'Open the chat with *$who* in WhatsApp.',
+          'Open the chat with *${bidiIsolate(who)}* in WhatsApp.',
           'Tap their *name* at the top.',
           'Scroll right to the bottom of that page.',
           'Tap *Export chat*.',
@@ -299,9 +299,9 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         children: [
           if (noQualifying)
             Notice(
-              'Nothing to learn from. This nearly always means the wrong name '
-              'is set as you. Swap ${_myName ?? "them"} and '
-              '${_theirName ?? "you"}?',
+              'Nothing to learn from. This nearly always means the wrong '
+              'name is set as you. Swap ${bidiIsolate(_myName ?? "them")} '
+              'and ${bidiIsolate(_theirName ?? "you")}?',
               tone: NoticeTone.caution,
               actionLabel: 'Swap them',
               onAction: _swapNames,
@@ -470,12 +470,19 @@ class _ReadSummary extends StatelessWidget {
       children: [
         Row(
           children: [
-            _Figure(
-              value: _grouped(chat.textMessageCount),
-              label: 'messages',
+            Flexible(
+              child: _Figure(
+                value: _grouped(chat.textMessageCount),
+                label: 'messages',
+              ),
             ),
             const SizedBox(width: 26),
-            _Figure(value: _grouped(chat.turns.length), label: 'turns'),
+            Flexible(
+              child: _Figure(
+                value: _grouped(chat.turns.length),
+                label: 'turns',
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 14),
@@ -569,9 +576,9 @@ class _WhoIsWho extends StatelessWidget {
       ),
       const SizedBox(height: 10),
       emphasised(
-        'Only *$myName*’s replies get learned. Pick the wrong one and it '
-        'will imitate $theirName convincingly — and nothing will warn '
-        'you.',
+        'Only *${bidiIsolate(myName)}*’s replies get learned. Pick the '
+        'wrong one and it will imitate ${bidiIsolate(theirName)} convincingly '
+        '— and nothing will warn you.',
         size: 13,
         color: Paper.secondary,
       ),
@@ -742,8 +749,8 @@ class _BuiltCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'It knows how you write to $theirName. Screenshot a chat and '
-          "it'll take it from there.",
+          'It knows how you write to ${bidiIsolate(theirName)}. Screenshot '
+          "a chat and it'll take it from there.",
           style: Type.prose(size: 13, color: Paper.greenText, height: 1.45),
         ),
       ],

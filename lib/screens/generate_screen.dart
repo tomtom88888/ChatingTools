@@ -362,7 +362,7 @@ class _Header extends StatelessWidget {
       Expanded(
         child: Center(
           child: Text(
-            'Replying to $them',
+            'Replying to ${bidiIsolate(them)}',
             style: Type.strong(size: 15, height: 1.3),
           ),
         ),
