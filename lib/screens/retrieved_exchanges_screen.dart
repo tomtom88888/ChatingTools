@@ -4,12 +4,18 @@ import '../models/stored_exchange.dart';
 import '../theme/tokens.dart';
 import '../widgets/paper_ui.dart';
 
-/// Shows the past exchanges pulled out of the style memory for one generation.
+/// The past exchanges similarity search pulled out of the style memory for one
+/// generation.
 ///
-/// This is the app explaining itself: the suggestions are only as good as what
-/// similarity search found, and the only way to judge that is to read it. Each
-/// entry is a real conversation off this phone, so nothing here is fetched and
-/// nothing leaves the device to display it.
+/// This is the app showing its working: the suggestions are only as good as
+/// what retrieval found, and the only way to judge that is to read it. Each
+/// entry is a real conversation off this phone — nothing is fetched to display
+/// it.
+///
+/// It is laid out as a transcript on the page rather than as cards: bubbles
+/// inside a panel inside a card stacked three surfaces deep and read as mush.
+/// Here the page is the only surface and the bubbles sit straight on it, the
+/// way a chat log looks.
 class RetrievedExchangesScreen extends StatelessWidget {
   const RetrievedExchangesScreen({
     required this.examples,
@@ -25,6 +31,7 @@ class RetrievedExchangesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PaperScreen(
+      gap: 0,
       children: [
         Row(
           children: [
@@ -46,72 +53,75 @@ class RetrievedExchangesScreen extends StatelessWidget {
             ),
           ],
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SerifTitle(
-              examples.isEmpty
-                  ? 'Nothing in your memory matched.'
-                  : '${examples.length} past '
-                        '${examples.length == 1 ? "exchange" : "exchanges"} '
-                        'like this one',
-              size: 28,
-            ),
-            const SizedBox(height: 9),
-            Text(
-              examples.isEmpty
-                  ? 'Similarity search came back empty, so the replies you '
-                        'were offered are a general model guessing rather than '
-                        'your own voice. Training on a longer export usually '
-                        'fixes it.'
-                  : 'Closest first. These are your real messages, read off '
-                        'this phone — the model saw exactly this, and '
-                        'copied from it.',
-              style: Type.prose(size: 14),
-            ),
-          ],
+        const SizedBox(height: Frame.gap),
+        SerifTitle(
+          examples.isEmpty
+              ? 'Nothing in your memory matched.'
+              : '${examples.length} past '
+                    '${examples.length == 1 ? "exchange" : "exchanges"} '
+                    'like this one',
+          size: 28,
         ),
-        if (examples.isNotEmpty)
+        const SizedBox(height: 9),
+        Text(
+          examples.isEmpty
+              ? 'Similarity search came back empty, so the replies you were '
+                    'offered are a general model guessing rather than your own '
+                    'voice. Training on a longer export usually fixes it.'
+              : 'Closest first. These are your real messages, read off this '
+                    'phone — the model saw exactly this and copied from it. '
+                    'Your reply is the one in colour.',
+          style: Type.prose(size: 14),
+        ),
+        if (examples.isNotEmpty) ...[
+          const SizedBox(height: 4),
           for (var i = 0; i < examples.length; i++)
-            _ExchangeCard(
+            _Exchange(
               rank: i + 1,
               scored: examples[i],
               myName: myName,
-              theirName: theirName,
+              first: i == 0,
             ),
-        if (examples.isNotEmpty)
+          const SizedBox(height: 20),
           const Footnote(
-            'Retrieved from the fingerprints stored on this phone. Nothing was '
+            'Read from the fingerprints stored on this phone. Nothing was '
             'fetched to show this.',
           ),
+        ],
       ],
     );
   }
 }
 
-class _ExchangeCard extends StatelessWidget {
-  const _ExchangeCard({
+/// One retrieved conversation: a quiet header line, then the turns.
+class _Exchange extends StatelessWidget {
+  const _Exchange({
     required this.rank,
     required this.scored,
     required this.myName,
-    required this.theirName,
+    required this.first,
   });
 
   final int rank;
   final ScoredExchange scored;
   final String myName;
-  final String theirName;
+  final bool first;
 
   @override
   Widget build(BuildContext context) {
     final exchange = scored.exchange;
     final when = exchange.timestamp;
 
-    return PaperCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (!first)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 18),
+              child: Divider(height: 1, thickness: 1, color: Paper.divider),
+            ),
           Row(
             children: [
               Text(
@@ -122,44 +132,23 @@ class _ExchangeCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   when == null ? 'date unknown' : _when(when),
-                  style: Type.prose(
+                  style: Type.numeric(
                     size: 12,
-                    color: Paper.tertiary,
-                    height: 1.3,
+                    color: Paper.muted,
+                    weight: FontWeight.w400,
                   ),
                 ),
               ),
-              _Similarity(value: scored.similarity),
+              Text(
+                scored.similarity.toStringAsFixed(2),
+                style: Type.numeric(size: 12, color: Paper.tertiary),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          // The conversation as it happened, in the same bubble language the
-          // Generate screen uses for the screenshot it read.
-          PaperPanel(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final turn in exchange.context)
-                  _Bubble(
-                    text: turn.text,
-                    mine: turn.sender == myName,
-                    label: turn.sender,
-                  ),
-                _Bubble(
-                  text: exchange.replyText,
-                  mine: true,
-                  label: myName,
-                  highlighted: true,
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 10),
-          Text(
-            'You replied with the highlighted message.',
-            style: Type.prose(size: 12, color: Paper.muted, height: 1.4),
-          ),
+          for (final turn in exchange.context)
+            _Bubble(text: turn.text, mine: turn.sender == myName),
+          _Bubble(text: exchange.replyText, mine: true, isTheReply: true),
         ],
       ),
     );
@@ -174,76 +163,60 @@ class _ExchangeCard extends StatelessWidget {
       '${at.day} ${_months[at.month - 1]} ${at.year}';
 }
 
-/// Cosine similarity, shown as the raw figure the provenance line quotes.
-class _Similarity extends StatelessWidget {
-  const _Similarity({required this.value});
-
-  final double value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-    decoration: BoxDecoration(
-      color: Paper.panel,
-      borderRadius: Corner.all(Corner.pill),
-    ),
-    child: Text(
-      value.toStringAsFixed(2),
-      style: Type.numeric(size: 11.5, color: Paper.secondary),
-    ),
-  );
-}
-
+/// A single message, sitting directly on the page.
+///
+/// Side says who spoke, as it does in WhatsApp and on the Generate screen, so
+/// no name label is needed and a right-to-left name cannot mislead.
 class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.text,
     required this.mine,
-    required this.label,
-    this.highlighted = false,
+    this.isTheReply = false,
   });
 
   final String text;
   final bool mine;
-  final String label;
-  final bool highlighted;
+
+  /// The message actually sent, which is the thing worth reading.
+  final bool isTheReply;
 
   @override
   Widget build(BuildContext context) {
-    final bg = mine
-        ? (highlighted ? Paper.accent : Paper.ink)
-        : Paper.card;
-    final fg = mine ? Colors.white : Paper.ink;
+    final background = isTheReply
+        ? Paper.accent
+        : (mine ? Paper.ink : Paper.card);
+    final foreground = mine || isTheReply ? Colors.white : Paper.ink;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Column(
-        crossAxisAlignment: mine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisAlignment: mine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
-          Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(context).width * 0.66,
-            ),
-            padding: const EdgeInsets.fromLTRB(11, 8, 11, 8),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.only(
-                topLeft: Corner.bubble,
-                topRight: Corner.bubble,
-                bottomLeft: mine ? Corner.bubble : const Radius.circular(4),
-                bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
+          Flexible(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+              ),
+              padding: const EdgeInsets.fromLTRB(13, 9, 13, 9),
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.only(
+                  topLeft: Corner.bubble,
+                  topRight: Corner.bubble,
+                  bottomLeft: mine ? Corner.bubble : const Radius.circular(4),
+                  bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
+                ),
+                border: mine
+                    ? null
+                    : Border.all(color: Paper.border, width: 1),
+              ),
+              child: Text(
+                text,
+                style: Type.prose(size: 14, color: foreground, height: 1.4),
               ),
             ),
-            child: Text(
-              text,
-              style: Type.prose(size: 13.5, color: fg, height: 1.4),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: Type.prose(size: 10.5, color: Paper.muted, height: 1.2),
           ),
         ],
       ),

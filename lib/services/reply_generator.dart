@@ -116,30 +116,20 @@ class ReplyGenerator {
     return parseVariants(raw, expected: settings.variantCount);
   }
 
-  /// The system prompt. Everything the spec asks the model to match is named
-  /// explicitly, because a model told only "match my style" defaults to
-  /// polished, punctuated, assistant-flavoured prose.
+  /// The system prompt, with the two names filled in.
+  ///
+  /// The wording comes from settings so it can be edited in the app; the
+  /// default names every trait a model would otherwise smooth away, because
+  /// one told only "match my style" writes polished, punctuated, assistant
+  /// prose.
   static String buildSystemPrompt(AppSettings settings) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
     final them = settings.theirName.isEmpty
         ? 'someone they know'
         : settings.theirName;
-    return 'You are writing a single WhatsApp message as $me, replying to '
-        '$them.\n'
-        '\n'
-        'Write the way $me actually writes. The examples of real past messages '
-        'you are given are the only style reference that matters; copy their:\n'
-        '- tone and level of warmth or bluntness\n'
-        '- typical message length (usually short)\n'
-        '- slang, abbreviations, filler words and in-jokes\n'
-        '- emoji use, including using none\n'
-        '- capitalisation and punctuation habits, including lowercase starts, '
-        'missing full stops and repeated letters\n'
-        '- language, and any mixing or switching between languages mid-message\n'
-        '\n'
-        'Never explain yourself, never add a greeting or sign-off that $me '
-        'would not use, and never sound like an assistant. Do not mention that '
-        'you are an AI or that you were given examples.';
+    return settings.effectiveSystemPrompt
+        .replaceAll('{me}', me)
+        .replaceAll('{them}', them);
   }
 
   /// The user prompt: retrieved real exchanges, then the live conversation.

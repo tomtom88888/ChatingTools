@@ -131,6 +131,67 @@ void main() {
     });
   });
 
+  group('the editable system prompt', () {
+    test('the default is a template, not finished text', () {
+      expect(AppSettings.defaultSystemPrompt, contains('{me}'));
+      expect(AppSettings.defaultSystemPrompt, contains('{them}'));
+    });
+
+    test('names are filled in when the prompt is built', () {
+      final prompt = ReplyGenerator.buildSystemPrompt(settings);
+      expect(prompt, contains('Robin'));
+      expect(prompt, contains('Sam'));
+      expect(prompt, isNot(contains('{me}')));
+      expect(prompt, isNot(contains('{them}')));
+    });
+
+    test('an edited prompt replaces the default', () {
+      final prompt = ReplyGenerator.buildSystemPrompt(
+        settings.copyWith(systemPrompt: 'Answer as {me}. Be terse.'),
+      );
+      expect(prompt, 'Answer as Robin. Be terse.');
+    });
+
+    test('an empty edit falls back rather than sending no instructions', () {
+      for (final empty in ['', '   ', '\n']) {
+        final s = settings.copyWith(systemPrompt: empty);
+        expect(s.effectiveSystemPrompt, AppSettings.defaultSystemPrompt);
+        expect(s.hasCustomSystemPrompt, isFalse);
+      }
+    });
+
+    test('an edit is recognised as one, and reset undoes it', () {
+      final edited = settings.copyWith(systemPrompt: 'Be terse.');
+      expect(edited.hasCustomSystemPrompt, isTrue);
+
+      final reset = edited.copyWith(resetSystemPrompt: true);
+      expect(reset.systemPrompt, isNull);
+      expect(reset.hasCustomSystemPrompt, isFalse);
+      expect(reset.effectiveSystemPrompt, AppSettings.defaultSystemPrompt);
+    });
+
+    test('re-saving the default text is not treated as an edit', () {
+      final same = settings.copyWith(
+        systemPrompt: AppSettings.defaultSystemPrompt,
+      );
+      expect(same.hasCustomSystemPrompt, isFalse);
+    });
+
+    test('an edited prompt survives being stored and read back', () {
+      final edited = settings.copyWith(systemPrompt: 'Answer as {me}.');
+      final restored = AppSettings.fromJson(edited.toJson());
+      expect(restored.systemPrompt, 'Answer as {me}.');
+      expect(restored.hasCustomSystemPrompt, isTrue);
+    });
+
+    test('the names still reach an edited prompt that uses the tokens', () {
+      final prompt = ReplyGenerator.buildSystemPrompt(
+        settings.copyWith(systemPrompt: '{me} is replying to {them}. {me}!'),
+      );
+      expect(prompt, 'Robin is replying to Sam. Robin!');
+    });
+  });
+
   group('parseVariants', () {
     test('reads the replies array', () {
       final variants = ReplyGenerator.parseVariants(

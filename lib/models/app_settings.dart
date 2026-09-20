@@ -25,6 +25,7 @@ class AppSettings {
     this.myName = '',
     this.theirName = '',
     this.fineTunedModel,
+    this.systemPrompt,
   });
 
   // OpenAI renames and retires models often, so these are starting points, not
@@ -47,6 +48,31 @@ class AppSettings {
   /// Fine-tuning is being wound down by OpenAI; this is the last base model
   /// their docs list for supervised fine-tuning.
   static const String defaultFineTuneBaseModel = 'gpt-4o-mini-2024-07-18';
+
+  /// The instructions the generating model is given, before the retrieved
+  /// examples and the conversation.
+  ///
+  /// `{me}` and `{them}` are filled in with the names from the export, so the
+  /// prompt keeps working after a retrain against a different chat. Editing
+  /// this is the bluntest control the app has over how replies come out; the
+  /// reset in Settings puts it back.
+  static const String defaultSystemPrompt =
+      'You are writing a single WhatsApp message as {me}, replying to '
+      '{them}.\n'
+      '\n'
+      'Write the way {me} actually writes. The examples of real past messages '
+      'you are given are the only style reference that matters; copy their:\n'
+      '- tone and level of warmth or bluntness\n'
+      '- typical message length (usually short)\n'
+      '- slang, abbreviations, filler words and in-jokes\n'
+      '- emoji use, including using none\n'
+      '- capitalisation and punctuation habits, including lowercase starts, '
+      'missing full stops and repeated letters\n'
+      '- language, and any mixing or switching between languages mid-message\n'
+      '\n'
+      'Never explain yourself, never add a greeting or sign-off that {me} '
+      'would not use, and never sound like an assistant. Do not mention that '
+      'you are an AI or that you were given examples.';
 
   static const int defaultContextTurns = 10;
   static const int defaultRetrievedExampleCount = 8;
@@ -90,6 +116,20 @@ class AppSettings {
   /// Set once a fine-tuning job has succeeded.
   final String? fineTunedModel;
 
+  /// An edited system prompt, or `null` to use [defaultSystemPrompt].
+  final String? systemPrompt;
+
+  /// The prompt template actually in force. An empty edit falls back to the
+  /// default rather than sending the model no instructions at all.
+  String get effectiveSystemPrompt =>
+      systemPrompt == null || systemPrompt!.trim().isEmpty
+      ? defaultSystemPrompt
+      : systemPrompt!;
+
+  /// Whether the prompt has been edited away from the default.
+  bool get hasCustomSystemPrompt =>
+      effectiveSystemPrompt.trim() != defaultSystemPrompt.trim();
+
   bool get hasNames => myName.isNotEmpty && theirName.isNotEmpty;
 
   bool get hasFineTunedModel =>
@@ -116,6 +156,8 @@ class AppSettings {
     String? theirName,
     String? fineTunedModel,
     bool clearFineTunedModel = false,
+    String? systemPrompt,
+    bool resetSystemPrompt = false,
   }) => AppSettings(
     visionModel: visionModel ?? this.visionModel,
     generationModel: generationModel ?? this.generationModel,
@@ -131,6 +173,9 @@ class AppSettings {
     fineTunedModel: clearFineTunedModel
         ? null
         : (fineTunedModel ?? this.fineTunedModel),
+    systemPrompt: resetSystemPrompt
+        ? null
+        : (systemPrompt ?? this.systemPrompt),
   );
 
   Map<String, Object?> toJson() => {
@@ -146,6 +191,7 @@ class AppSettings {
     'myName': myName,
     'theirName': theirName,
     'fineTunedModel': fineTunedModel,
+    'systemPrompt': systemPrompt,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> json) {
@@ -184,6 +230,7 @@ class AppSettings {
       myName: str('myName', ''),
       theirName: str('theirName', ''),
       fineTunedModel: json['fineTunedModel'] as String?,
+      systemPrompt: json['systemPrompt'] as String?,
     );
   }
 }

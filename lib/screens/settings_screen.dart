@@ -237,6 +237,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (v) => _edit((s) => s.copyWith(variantCount: v)),
           ),
 
+          const MonoLabel('The prompt'),
+          _SystemPromptField(
+            value: settings.effectiveSystemPrompt,
+            edited: settings.hasCustomSystemPrompt,
+            onChanged: (v) => _edit((s) => s.copyWith(systemPrompt: v)),
+            onReset: () => _edit((s) => s.copyWith(resetSystemPrompt: true)),
+          ),
+
           const MonoLabel('Names in the export'),
           PaperCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -734,6 +742,120 @@ class _PaperDialog extends StatelessWidget {
             color: destructive ? Paper.errorText : Paper.accent,
           ),
         ),
+      ),
+    ],
+  );
+}
+
+/// The generating model's instructions, editable, with a way back.
+///
+/// This is the bluntest control over how replies read, so it is shown in full
+/// rather than hidden behind a dialog, and the reset is only offered once the
+/// text differs from the default \u2014 there is nothing to undo otherwise.
+class _SystemPromptField extends StatefulWidget {
+  const _SystemPromptField({
+    required this.value,
+    required this.edited,
+    required this.onChanged,
+    required this.onReset,
+  });
+
+  final String value;
+  final bool edited;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onReset;
+
+  @override
+  State<_SystemPromptField> createState() => _SystemPromptFieldState();
+}
+
+class _SystemPromptFieldState extends State<_SystemPromptField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.value,
+  );
+
+  // Enter inserts a newline in a multi-line field, so onEditingComplete never
+  // fires and tapping outside is not the only way a person leaves it: they
+  // also scroll away, dismiss the keyboard, or go back. Committing when focus
+  // is lost covers all of those.
+  late final FocusNode _focus = FocusNode()..addListener(_onFocusChanged);
+
+  void _onFocusChanged() {
+    if (!_focus.hasFocus) _commit();
+  }
+
+  @override
+  void didUpdateWidget(_SystemPromptField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A reset changes the value from outside; adopt it.
+    if (widget.value != oldWidget.value && widget.value != _controller.text) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _commit() {
+    final next = _controller.text;
+    if (next.trim().isEmpty) {
+      // An empty prompt would leave the model with no instructions at all.
+      widget.onReset();
+      return;
+    }
+    if (next != widget.value) widget.onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              'What the model is told before your examples',
+              style: Type.strong(size: 13, height: 1.35),
+            ),
+          ),
+          if (widget.edited)
+            GestureDetector(
+              onTap: () {
+                _controller.text = AppSettings.defaultSystemPrompt;
+                widget.onReset();
+              },
+              child: Text(
+                'Reset to default',
+                style: Type.strong(size: 13, color: Paper.accent),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 7),
+      TextField(
+        controller: _controller,
+        focusNode: _focus,
+        maxLines: null,
+        minLines: 6,
+        textCapitalization: TextCapitalization.sentences,
+        style: Type.prose(size: 13, color: Paper.ink, height: 1.5),
+        decoration: _fieldDecoration('The instructions the model follows'),
+        onTapOutside: (_) => _commit(),
+        onEditingComplete: _commit,
+      ),
+      const SizedBox(height: 6),
+      Text(
+        '{me} and {them} are filled in with the names from your export, so the '
+        'prompt keeps working if you retrain on a different chat. This does '
+        'not affect a fine-tuned model, which carries the prompt it was '
+        'trained with.',
+        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
       ),
     ],
   );

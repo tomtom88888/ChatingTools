@@ -221,6 +221,43 @@ void main() {
     expect(find.text('Delete all my data'), findsOneWidget);
   });
 
+  testWidgets('the system prompt is editable and resettable', (tester) async {
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: FakeStore(savedStats: exampleStats()),
+    );
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+
+    await scrollTo(
+      tester,
+      find.text('What the model is told before your examples'),
+    );
+
+    // Unedited, there is nothing to undo, so no reset is offered.
+    expect(find.text('Reset to default'), findsNothing);
+
+    final field = find.byWidgetPredicate(
+      (w) => w is TextField && (w.controller?.text ?? '').contains('{me}'),
+    );
+    expect(field, findsOneWidget);
+
+    await tester.enterText(field, 'Answer as {me}. Be terse.');
+    await tester.pump();
+    // The edit is committed when the field loses focus.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+
+    await scrollTo(tester, find.text('Reset to default'));
+    expect(find.text('Reset to default'), findsOneWidget);
+
+    await tester.tap(find.text('Reset to default'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reset to default'), findsNothing);
+  });
+
   testWidgets('the delete dialog separates the data from the key', (
     tester,
   ) async {
