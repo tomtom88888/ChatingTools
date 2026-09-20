@@ -83,10 +83,16 @@ flutter build appbundle --release
 flutter build ios --release      # iOS (needs Xcode and a signing identity)
 ```
 
-`flutter build apk --release` works with no keystore because the Flutter
-template signs release builds with the Android debug key — fine for installing
-on your own phone, not acceptable for the Play Store. Add a real keystore and
-`signingConfig` in `android/app/build.gradle.kts` before publishing.
+Release builds are signed with `android/app/sideload.keystore`, a fixed key
+committed next to the app with the password `sideload`. That is deliberate and
+it is **not** a release key: it exists so every build — yours, a colleague's, a
+CI run — signs identically, which is what lets one sideloaded APK install over
+another. Gradle's auto-generated debug keystore is created fresh per machine, so
+two CI builds would get different keys and Android would refuse the upgrade with
+"App not installed".
+
+Before publishing anywhere, replace it: generate your own keystore, keep it out
+of the repository, and inject it from CI secrets.
 
 If you would rather not install the Android SDK, the
 [Build APK workflow](.github/workflows/build-apk.yml) runs `analyze`, `test` and
@@ -243,6 +249,15 @@ test/fixtures/               synthetic Android and iOS exports
 | "That file doesn't look like a WhatsApp export" | Wrong file, or an export from another app. |
 | "There are no replies of yours to learn from" | The name picked as yours is probably the other person. |
 | "cannot use that model or endpoint" | Your account has no access to that model id. Load the model list in Settings. |
+
+### "App not installed" when sideloading
+
+Android refuses an APK signed by a different key to the copy already on the
+phone. If you installed a build made before the committed keystore existed,
+uninstall the app once and install again — later builds all share one key and
+upgrade cleanly. The other cause is the wrong ABI: `app-arm64-v8a-release.apk`
+suits essentially every phone since 2017, and `app-release.apk` works on all of
+them.
 
 ## Tests
 

@@ -31,6 +31,9 @@ android/local.properties
 android/key.properties
 android/app/*.jks
 android/app/*.keystore
+# The one exception: a deliberately public key for sideload builds, so every
+# build signs the same and APKs can upgrade each other. Never a release key.
+!android/app/sideload.keystore
 android/.cxx/
 android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 *.apk

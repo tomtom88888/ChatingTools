@@ -34,11 +34,27 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // A fixed key, committed alongside the app, so that every build signs
+        // identically and one sideloaded APK can be installed over another.
+        // Gradle's auto-generated debug keystore is created fresh on each
+        // machine, which means two CI builds get different keys and Android
+        // refuses the upgrade with "App not installed".
+        //
+        // This is NOT a release key and its password is public on purpose.
+        // Replace it with a keystore of your own, injected from CI secrets,
+        // before publishing anywhere.
+        create("sideload") {
+            storeFile = file("sideload.keystore")
+            storePassword = "sideload"
+            keyAlias = "sideload"
+            keyPassword = "sideload"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("sideload")
         }
     }
 }

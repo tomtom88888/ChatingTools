@@ -11,4 +11,6 @@ GeneratedPluginRegistrant.java
 # See https://flutter.dev/to/reference-keystore
 key.properties
 **/*.keystore
+# Except the deliberately public sideload key — see app/build.gradle.kts.
+!app/sideload.keystore
 **/*.jks
