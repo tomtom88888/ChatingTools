@@ -19,7 +19,14 @@ training, the screenshot you pick, and the prompt used to write a reply.
    which name in the export is you.
 3. **Generate** — pick a screenshot of the conversation you're in. The app reads
    it, shows you what it read so you can fix any mistakes, then offers three
-   replies. Tap one to copy it.
+   messages. Tap one to copy it.
+
+   You can add a note first ("say I'll be late", "ask about the weekend"). The
+   note decides what the message says; your retrieved replies still decide how
+   it sounds. Two of the three answer what was just said; the third doesn't — it
+   moves the chat on to a different subject, and each card is tagged `reply` or
+   `new topic` so you can tell them apart. The tag reflects what the model
+   actually produced: if it returns no topic change, none is invented.
 
 ### Training: two modes
 

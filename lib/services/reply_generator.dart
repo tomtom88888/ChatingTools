@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/app_settings.dart';
 import '../models/chat_turn.dart';
 import '../models/extracted_message.dart';
+import '../models/reply_suggestion.dart';
 import '../models/stored_exchange.dart';
 import 'openai_exception.dart';
 import 'openai_service.dart';
@@ -56,10 +57,11 @@ class ReplyGenerator {
   /// plain calls. With a base model one JSON-mode call returns all the variants
   /// at once, which is cheaper and gives the model a reason to make them
   /// genuinely different from each other.
-  Future<List<String>> generate({
+  Future<List<ReplySuggestion>> generate({
     required List<ChatTurn> conversation,
     required List<ScoredExchange> examples,
     required AppSettings settings,
+    String note = '',
   }) async {
     if (conversation.isEmpty) {
       throw const OpenAiException(
@@ -79,26 +81,40 @@ class ReplyGenerator {
         settings.mode == TrainingMode.fineTune && settings.hasFineTunedModel;
     final model = settings.effectiveGenerationModel;
     final systemPrompt = buildSystemPrompt(settings);
-    final userPrompt = buildUserPrompt(
-      conversation: conversation,
-      examples: examples,
-      settings: settings,
-      askForJson: !usingFineTune,
-    );
 
     if (usingFineTune) {
-      final variants = <String>[];
+      // A fine-tuned model was trained to emit one bare reply, so each variant
+      // is its own call and the topic change is asked for explicitly on the
+      // last one rather than through a schema.
+      final variants = <ReplySuggestion>[];
       for (var i = 0; i < settings.variantCount; i++) {
+        final wantsNewTopic =
+            settings.variantCount > 1 && i == settings.variantCount - 1;
         final reply = await openai.chat(
           model: model,
           messages: [
             {'role': 'system', 'content': systemPrompt},
-            {'role': 'user', 'content': userPrompt},
+            {
+              'role': 'user',
+              'content': buildUserPrompt(
+                conversation: conversation,
+                examples: examples,
+                settings: settings,
+                note: note,
+                askForJson: false,
+                askForNewTopic: wantsNewTopic,
+              ),
+            },
           ],
           temperature: 0.9,
           maxOutputTokens: 400,
         );
-        variants.add(_tidy(reply));
+        variants.add(
+          ReplySuggestion(
+            text: _tidy(reply),
+            kind: wantsNewTopic ? SuggestionKind.newTopic : SuggestionKind.reply,
+          ),
+        );
       }
       return _deduplicate(variants);
     }
@@ -107,7 +123,16 @@ class ReplyGenerator {
       model: model,
       messages: [
         {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': userPrompt},
+        {
+          'role': 'user',
+          'content': buildUserPrompt(
+            conversation: conversation,
+            examples: examples,
+            settings: settings,
+            note: note,
+            askForJson: true,
+          ),
+        },
       ],
       temperature: 0.9,
       maxOutputTokens: 800,
@@ -132,14 +157,18 @@ class ReplyGenerator {
         .replaceAll('{them}', them);
   }
 
-  /// The user prompt: retrieved real exchanges, then the live conversation.
+  /// The user prompt: retrieved real exchanges, the live conversation, the
+  /// user's own note, and what to produce.
   static String buildUserPrompt({
     required List<ChatTurn> conversation,
     required List<ScoredExchange> examples,
     required AppSettings settings,
     required bool askForJson,
+    String note = '',
+    bool askForNewTopic = false,
   }) {
     final buffer = StringBuffer();
+    final me = _name(settings.myName, 'the user');
 
     if (examples.isNotEmpty) {
       buffer.writeln(
@@ -176,18 +205,46 @@ class ReplyGenerator {
     }
     buffer.writeln();
 
-    if (askForJson) {
+    // The note is the one place the user speaks directly to the model, so it
+    // outranks the examples where the two disagree - the examples describe how
+    // they write, the note says what they want to say this time.
+    if (note.trim().isNotEmpty) {
+      buffer.writeln('--- what $me wants this message to do ---');
+      buffer.writeln(note.trim());
+      buffer.writeln();
       buffer.writeln(
-        'Write the next message as ${_name(settings.myName, "the user")}. '
-        'Give ${settings.variantCount} genuinely different options — vary the '
-        'length and the angle, not just the wording. Respond with JSON only, '
-        'of the form {"replies": ["...", "..."]}, and put nothing but the '
-        'message text in each string.',
+        'Follow that note. It decides what the message says; the examples only '
+        'decide how it is written. Do not quote the note back.',
+      );
+      buffer.writeln();
+    }
+
+    if (askForJson) {
+      final count = settings.variantCount;
+      buffer.writeln('Write the next message as $me. Give $count options.');
+      if (count > 1) {
+        buffer.writeln(
+          '- ${count - 1} of them answer what was just said.\n'
+          '- Exactly one of them does not answer: it moves the conversation '
+          'on to a different subject, the way $me would change the topic. It '
+          'still has to sound like $me and fit where the chat has got to.',
+        );
+      }
+      buffer.writeln(
+        'Vary the length and the angle, not just the wording. Respond with '
+        'JSON only, of the form {"replies": [{"kind": "reply", "text": "..."}, '
+        '{"kind": "new_topic", "text": "..."}]}, and put nothing but the '
+        'message text in each "text".',
+      );
+    } else if (askForNewTopic) {
+      buffer.writeln(
+        'Write the next message as $me, but do not answer what was just said '
+        '\u2014 move the conversation on to a different subject, the way $me '
+        'would change the topic. Output only the message itself.',
       );
     } else {
       buffer.writeln(
-        'Write the next message as ${_name(settings.myName, "the user")}. '
-        'Output only the message itself.',
+        'Write the next message as $me. Output only the message itself.',
       );
     }
     return buffer.toString();
@@ -196,8 +253,15 @@ class ReplyGenerator {
   static String _name(String name, String fallback) =>
       name.isEmpty ? fallback : name;
 
-  /// Validates the JSON-mode reply and returns the variants.
-  static List<String> parseVariants(String raw, {required int expected}) {
+  /// Validates the JSON-mode reply and returns the typed suggestions.
+  ///
+  /// Accepts the documented shape, a bare array, and plain strings, because a
+  /// model that ignores the schema should still produce something usable
+  /// rather than an error.
+  static List<ReplySuggestion> parseVariants(
+    String raw, {
+    required int expected,
+  }) {
     final cleaned = _stripFence(raw);
     Object? decoded;
     try {
@@ -206,24 +270,38 @@ class ReplyGenerator {
       decoded = null;
     }
 
-    final List<String> variants;
-    if (decoded is Map && decoded['replies'] is List) {
-      variants = (decoded['replies'] as List)
-          .whereType<String>()
-          .map(_tidy)
-          .where((s) => s.isNotEmpty)
-          .toList();
+    Object? list;
+    if (decoded is Map) {
+      list = decoded['replies'] ?? decoded['options'] ?? decoded['messages'];
     } else if (decoded is List) {
-      variants = decoded
-          .whereType<String>()
-          .map(_tidy)
-          .where((s) => s.isNotEmpty)
-          .toList();
+      list = decoded;
+    }
+
+    final variants = <ReplySuggestion>[];
+    if (list is List) {
+      for (final entry in list) {
+        if (entry is String) {
+          final text = _tidy(entry);
+          if (text.isNotEmpty) variants.add(ReplySuggestion.reply(text));
+        } else if (entry is Map) {
+          final text = _tidy(
+            entry['text'] as String? ?? entry['reply'] as String? ?? '',
+          );
+          if (text.isNotEmpty) {
+            variants.add(
+              ReplySuggestion(
+                text: text,
+                kind: SuggestionKind.parse(entry['kind'] ?? entry['type']),
+              ),
+            );
+          }
+        }
+      }
     } else {
-      // The model ignored the format. Rather than failing, treat the whole
-      // answer as one usable reply.
+      // The model ignored the format entirely. Rather than failing, treat the
+      // whole answer as one usable reply.
       final single = _tidy(cleaned);
-      variants = single.isEmpty ? const [] : [single];
+      if (single.isNotEmpty) variants.add(ReplySuggestion.reply(single));
     }
 
     if (variants.isEmpty) {
@@ -232,16 +310,41 @@ class ReplyGenerator {
         'The model did not return any replies. Try again.',
       );
     }
+
     final unique = _deduplicate(variants);
-    return unique.length > expected ? unique.sublist(0, expected) : unique;
+    final capped = unique.length > expected
+        ? unique.sublist(0, expected)
+        : unique;
+    return _atMostOneNewTopic(capped);
   }
 
-  static List<String> _deduplicate(List<String> variants) {
+  /// Keeps the first topic change and demotes any others.
+  ///
+  /// Nothing is promoted: labelling a plain reply as a topic change to make
+  /// the set look right would be a lie about what the model produced.
+  static List<ReplySuggestion> _atMostOneNewTopic(
+    List<ReplySuggestion> variants,
+  ) {
+    var seen = false;
+    return [
+      for (final variant in variants)
+        if (!variant.isNewTopic)
+          variant
+        else if (!seen) (() {
+          seen = true;
+          return variant;
+        })()
+        else
+          variant.copyWith(kind: SuggestionKind.reply),
+    ];
+  }
+
+  static List<ReplySuggestion> _deduplicate(List<ReplySuggestion> variants) {
     final seen = <String>{};
-    final out = <String>[];
+    final out = <ReplySuggestion>[];
     for (final variant in variants) {
-      if (variant.isEmpty) continue;
-      if (seen.add(variant.toLowerCase())) out.add(variant);
+      if (variant.text.isEmpty) continue;
+      if (seen.add(variant.text.toLowerCase())) out.add(variant);
     }
     return out;
   }

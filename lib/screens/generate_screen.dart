@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/app_settings.dart';
 import '../models/extracted_message.dart';
+import '../models/reply_suggestion.dart';
 import '../models/stored_exchange.dart';
 import '../services/reply_generator.dart';
 import '../state/providers.dart';
@@ -24,14 +25,35 @@ class GenerateScreen extends ConsumerStatefulWidget {
 class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   Uint8List? _screenshot;
   List<ExtractedMessage> _messages = [];
-  List<String> _variants = [];
+  List<ReplySuggestion> _variants = [];
   List<ScoredExchange> _examples = [];
+
+  /// A one-off instruction for this reply: what to say, as opposed to how.
+  /// Cleared with the screenshot, because it belongs to this moment.
+  final _noteController = TextEditingController();
+  String _note = '';
 
   bool _reading = false;
   bool _generating = false;
   bool _fixing = false;
   int? _copiedIndex;
   Object? _error;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _commitNote() {
+    final next = _noteController.text.trim();
+    if (next == _note) return;
+    setState(() {
+      _note = next;
+      // The shown options no longer match the inputs.
+      _variants = [];
+    });
+  }
 
   Future<void> _pickScreenshot() async {
     setState(() => _error = null);
@@ -45,12 +67,14 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       );
       if (picked == null) return;
       final bytes = await picked.readAsBytes();
+      _noteController.clear();
       setState(() {
         _screenshot = bytes;
         _messages = [];
         _variants = [];
         _examples = [];
         _copiedIndex = null;
+        _note = '';
       });
       await _extract(bytes, picked.mimeType ?? _guessMimeType(picked.name));
     } on Object catch (error) {
@@ -116,6 +140,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         conversation: conversation,
         examples: examples,
         settings: named,
+        note: _note,
       );
       if (mounted) {
         setState(() {
@@ -131,7 +156,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   }
 
   Future<void> _copy(int index) async {
-    await Clipboard.setData(ClipboardData(text: _variants[index]));
+    await Clipboard.setData(ClipboardData(text: _variants[index].text));
     if (!mounted) return;
     setState(() => _copiedIndex = index);
     showToast(
@@ -280,6 +305,11 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
             onToggleSide: _toggleSide,
             onEdit: _editText,
           ),
+        if (_messages.isNotEmpty && !_generating)
+          _NoteField(
+            controller: _noteController,
+            onCommit: _commitNote,
+          ),
         if (_messages.isNotEmpty && _variants.isEmpty && !_generating)
           PaperAction(
             title: 'Write ${settings.variantCount} replies',
@@ -292,7 +322,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           SerifTitle('Three ways you’d answer that', size: 22),
           for (var i = 0; i < _variants.length; i++)
             _ReplyCard(
-              text: _variants[i],
+              suggestion: _variants[i],
               copied: _copiedIndex == i,
               provenance: _provenance(i),
               onCopy: () => _copy(i),
@@ -324,7 +354,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   /// The design labels each reply with its shape and the date of the example it
   /// most resembles; without a match it says only how long it is.
   String _provenance(int index) {
-    final lines = _variants[index].split('\n').length;
+    final lines = _variants[index].text.split('\n').length;
     final unit = lines == 1 ? 'line' : 'lines';
     if (_examples.isEmpty) return '$lines $unit';
     final when = _examples[index % _examples.length].exchange.timestamp;
@@ -647,70 +677,154 @@ class _SideToggle extends StatelessWidget {
 
 class _ReplyCard extends StatelessWidget {
   const _ReplyCard({
-    required this.text,
+    required this.suggestion,
     required this.copied,
     required this.provenance,
     required this.onCopy,
   });
 
-  final String text;
+  final ReplySuggestion suggestion;
   final bool copied;
   final String provenance;
   final VoidCallback onCopy;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 10),
-    child: PaperCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            text,
-            style: Type.prose(size: 15.5, color: Paper.ink, height: 1.5),
-          ),
-          const SizedBox(height: 11),
-          Container(
-            padding: const EdgeInsets.only(top: 10),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Paper.divider)),
-            ),
-            child: Row(
+  Widget build(BuildContext context) {
+    final changesSubject = suggestion.isNewTopic;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: PaperCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // What this option is for. The one that changes the subject is
+            // marked in the accent colour because it is the odd one out, and
+            // picking it by accident would send the conversation sideways.
+            Row(
               children: [
-                Expanded(
-                  child: Text(
-                    provenance,
-                    style: Type.numeric(
-                      size: 11.5,
-                      color: Paper.muted,
-                      weight: FontWeight.w500,
+                if (changesSubject)
+                  Container(
+                    width: 5,
+                    height: 5,
+                    margin: const EdgeInsets.only(right: 7),
+                    decoration: const BoxDecoration(
+                      color: Paper.accent,
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ),
-                GestureDetector(
-                  onTap: onCopy,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: copied ? Paper.green : Paper.ink,
-                      borderRadius: Corner.all(Corner.pill),
-                    ),
-                    child: Text(
-                      copied ? 'Copied' : 'Copy',
-                      style: Type.strong(size: 13, color: Paper.onInk),
-                    ),
-                  ),
+                MonoLabel(
+                  suggestion.kind.label,
+                  size: 10.5,
+                  spacing: 0.14,
+                  color: changesSubject ? Paper.accent : Paper.muted,
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 9),
+            Text(
+              suggestion.text,
+              style: Type.prose(size: 15.5, color: Paper.ink, height: 1.5),
+            ),
+            const SizedBox(height: 11),
+            Container(
+              padding: const EdgeInsets.only(top: 10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Paper.divider)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      provenance,
+                      style: Type.numeric(
+                        size: 11.5,
+                        color: Paper.muted,
+                        weight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: onCopy,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: copied ? Paper.green : Paper.ink,
+                        borderRadius: Corner.all(Corner.pill),
+                      ),
+                      child: Text(
+                        copied ? 'Copied' : 'Copy',
+                        style: Type.strong(size: 13, color: Paper.onInk),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
+    );
+  }
+}
+
+/// A one-off instruction for this reply.
+///
+/// The retrieved examples decide how a message is written; this decides what
+/// it says. It is deliberately per-screenshot rather than a saved setting,
+/// because it is about this moment in the conversation.
+class _NoteField extends StatelessWidget {
+  const _NoteField({required this.controller, required this.onCommit});
+
+  final TextEditingController controller;
+  final VoidCallback onCommit;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const MonoLabel('Anything it should know', spacing: 0.12),
+      const SizedBox(height: 8),
+      TextField(
+        controller: controller,
+        maxLines: null,
+        minLines: 2,
+        textCapitalization: TextCapitalization.sentences,
+        style: Type.prose(size: 14, color: Paper.ink, height: 1.45),
+        onTapOutside: (_) => onCommit(),
+        onEditingComplete: onCommit,
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: Paper.card,
+          hintText: "say I'll be late \u00b7 keep it short \u00b7 ask about "
+              'the weekend',
+          hintStyle: Type.prose(size: 14, color: Paper.placeholder),
+          contentPadding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          border: OutlineInputBorder(
+            borderRadius: Corner.all(Corner.small),
+            borderSide: const BorderSide(color: Paper.border, width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: Corner.all(Corner.small),
+            borderSide: const BorderSide(color: Paper.border, width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: Corner.all(Corner.small),
+            borderSide: const BorderSide(color: Paper.accent, width: 1.5),
+          ),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Optional. This decides what the message says; your past replies still '
+        'decide how it sounds.',
+        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
+      ),
+    ],
   );
 }
 

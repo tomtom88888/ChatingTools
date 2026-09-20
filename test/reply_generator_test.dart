@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/extracted_message.dart';
+import 'package:replylikeme/models/reply_suggestion.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/services/openai_exception.dart';
 import 'package:replylikeme/services/openai_service.dart';
@@ -115,8 +116,10 @@ void main() {
         settings: settings.copyWith(contextTurns: 2),
         askForJson: true,
       );
-      expect(prompt, isNot(contains('one')));
-      expect(prompt, contains('three'));
+      // The dropped turn's transcript line, not the bare word: the topic-change
+      // instruction legitimately says "exactly one".
+      expect(prompt, isNot(contains('Sam: one')));
+      expect(prompt, contains('Sam: three'));
     });
 
     test('asks for a bare message when a fine-tuned model will answer', () {
@@ -193,12 +196,72 @@ void main() {
   });
 
   group('parseVariants', () {
-    test('reads the replies array', () {
+    test('reads the typed replies array', () {
       final variants = ReplyGenerator.parseVariants(
-        '{"replies":["yeah","yeah go on","cant tonight sorry"]}',
+        '{"replies":['
+        '{"kind":"reply","text":"yeah"},'
+        '{"kind":"reply","text":"yeah go on"},'
+        '{"kind":"new_topic","text":"anyway did you see the thing"}]}',
         expected: 3,
       );
-      expect(variants, ['yeah', 'yeah go on', 'cant tonight sorry']);
+      expect(variants.map((v) => v.text), [
+        'yeah',
+        'yeah go on',
+        'anyway did you see the thing',
+      ]);
+      expect(variants.map((v) => v.kind), [
+        SuggestionKind.reply,
+        SuggestionKind.reply,
+        SuggestionKind.newTopic,
+      ]);
+    });
+
+    test('accepts the spellings a model might choose for the kind', () {
+      for (final spelling in ['new_topic', 'newTopic', 'new topic', 'TOPIC']) {
+        final variants = ReplyGenerator.parseVariants(
+          '{"replies":[{"kind":"$spelling","text":"anyway"}]}',
+          expected: 1,
+        );
+        expect(variants.single.kind, SuggestionKind.newTopic, reason: spelling);
+      }
+    });
+
+    test('an unknown or missing kind is a plain reply', () {
+      final variants = ReplyGenerator.parseVariants(
+        '{"replies":[{"text":"yeah"},{"kind":"banter","text":"ha"}]}',
+        expected: 2,
+      );
+      expect(variants.every((v) => v.kind == SuggestionKind.reply), isTrue);
+    });
+
+    test('plain strings still work, as plain replies', () {
+      final variants = ReplyGenerator.parseVariants(
+        '{"replies":["yeah","nah"]}',
+        expected: 2,
+      );
+      expect(variants.map((v) => v.text), ['yeah', 'nah']);
+      expect(variants.every((v) => v.kind == SuggestionKind.reply), isTrue);
+    });
+
+    test('keeps the first topic change and demotes the rest', () {
+      final variants = ReplyGenerator.parseVariants(
+        '{"replies":['
+        '{"kind":"new_topic","text":"anyway"},'
+        '{"kind":"new_topic","text":"also"},'
+        '{"kind":"new_topic","text":"oh and"}]}',
+        expected: 3,
+      );
+      expect(variants.where((v) => v.isNewTopic).length, 1);
+      expect(variants.first.isNewTopic, isTrue);
+    });
+
+    test('never invents a topic change the model did not return', () {
+      final variants = ReplyGenerator.parseVariants(
+        '{"replies":[{"kind":"reply","text":"yeah"},'
+        '{"kind":"reply","text":"nah"}]}',
+        expected: 2,
+      );
+      expect(variants.any((v) => v.isNewTopic), isFalse);
     });
 
     test('drops duplicates that differ only in case', () {
@@ -206,7 +269,7 @@ void main() {
         '{"replies":["Yeah","yeah","nah"]}',
         expected: 3,
       );
-      expect(variants, ['Yeah', 'nah']);
+      expect(variants.map((v) => v.text), ['Yeah', 'nah']);
     });
 
     test('caps at the requested count', () {
@@ -219,10 +282,10 @@ void main() {
 
     test('strips the quotes and labels models like to add', () {
       final variants = ReplyGenerator.parseVariants(
-        '{"replies":["\\"yeah ok\\"","Reply: on my way"]}',
+        r'{"replies":["\"yeah ok\"","Reply: on my way"]}',
         expected: 2,
       );
-      expect(variants, ['yeah ok', 'on my way']);
+      expect(variants.map((v) => v.text), ['yeah ok', 'on my way']);
     });
 
     test('falls back to the whole answer when the model ignores JSON', () {
@@ -230,7 +293,7 @@ void main() {
         'yeah sounds good',
         expected: 3,
       );
-      expect(variants, ['yeah sounds good']);
+      expect(variants.single.text, 'yeah sounds good');
     });
 
     test('complains when there is nothing usable at all', () {
@@ -238,6 +301,72 @@ void main() {
         () => ReplyGenerator.parseVariants('{"replies":[]}', expected: 3),
         throwsA(isA<OpenAiException>()),
       );
+    });
+  });
+
+  group('the note', () {
+    test('is included and told to outrank the examples', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: true,
+        note: "tell her I'm running late",
+      );
+      expect(prompt, contains("tell her I'm running late"));
+      expect(prompt, contains('It decides what the message says'));
+      expect(prompt, contains('Do not quote the note back'));
+    });
+
+    test('is left out entirely when empty', () {
+      for (final empty in ['', '   ']) {
+        final prompt = ReplyGenerator.buildUserPrompt(
+          conversation: [turn('Sam', 'pub?')],
+          examples: const [],
+          settings: settings,
+          askForJson: true,
+          note: empty,
+        );
+        expect(prompt, isNot(contains('wants this message to do')));
+      }
+    });
+  });
+
+  group('the topic-change option', () {
+    test('is asked for once, alongside the plain replies', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: true,
+      );
+      expect(prompt, contains('Give 3 options'));
+      expect(prompt, contains('2 of them answer what was just said'));
+      expect(prompt, contains('Exactly one of them does not answer'));
+      expect(prompt, contains('new_topic'));
+    });
+
+    test('is not asked for when only one option is wanted', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings.copyWith(variantCount: 1),
+        askForJson: true,
+      );
+      expect(prompt, contains('Give 1 options'));
+      expect(prompt, isNot(contains('Exactly one of them does not answer')));
+    });
+
+    test('has its own instruction on the fine-tuned path', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: false,
+        askForNewTopic: true,
+      );
+      expect(prompt, contains('do not answer what was just said'));
+      expect(prompt, contains('change the topic'));
     });
   });
 
@@ -269,7 +398,11 @@ void main() {
         openai: serviceThat((request) async {
           calls++;
           sent = jsonDecode(request.body) as Map<String, Object?>;
-          return chatReply('{"replies":["a","b","c"]}');
+          return chatReply(
+            '{"replies":[{"kind":"reply","text":"a"},'
+            '{"kind":"reply","text":"b"},'
+            '{"kind":"new_topic","text":"c"}]}',
+          );
         }),
       );
 
@@ -279,7 +412,7 @@ void main() {
         settings: settings,
       );
 
-      expect(variants, ['a', 'b', 'c']);
+      expect(variants.map((v) => v.text), ['a', 'b', 'c']);
       expect(calls, 1);
       expect(sent!['model'], AppSettings.defaultGenerationModel);
       expect(sent!['response_format'], isNotNull);
@@ -306,8 +439,14 @@ void main() {
         ),
       );
 
-      expect(variants, ['reply 1', 'reply 2', 'reply 3']);
+      expect(variants.map((v) => v.text), ['reply 1', 'reply 2', 'reply 3']);
       expect(models, everyElement('ft:gpt-4o-mini-2024-07-18:me::abc123'));
+      // The last of the separate calls is the one asked to change the subject.
+      expect(variants.map((v) => v.kind), [
+        SuggestionKind.reply,
+        SuggestionKind.reply,
+        SuggestionKind.newTopic,
+      ]);
     });
 
     test('still sends the retrieved examples to a fine-tuned model', () async {
