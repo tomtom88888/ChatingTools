@@ -454,10 +454,10 @@ class _SystemPromptFieldState extends State<SystemPromptField> {
       ),
       const SizedBox(height: 6),
       Text(
-        '{me} and {them} are filled in with the names from your export, so the '
-        'prompt keeps working if you retrain on a different chat. This does '
-        'not affect a fine-tuned model, which carries the prompt it was '
-        'trained with.',
+        '{me} and {them} are filled in with the names from the chat you are '
+        'replying in. The app adds your measured habits, a sample of your '
+        'real messages and your note after this, and puts your past '
+        'exchanges in as real turns of the conversation.',
         style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
       ),
     ],

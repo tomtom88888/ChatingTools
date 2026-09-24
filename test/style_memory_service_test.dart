@@ -20,11 +20,8 @@ typedef FakeStore = MemoryExchangeStore;
 ChatTurn turn(String sender, String text) =>
     ChatTurn(sender: sender, text: text, messageCount: 1);
 
-Exchange exchange(
-  String theirText,
-  String myReply, {
-  String them = 'Sam',
-}) => Exchange(context: [turn(them, theirText)], reply: turn('Robin', myReply));
+Exchange exchange(String theirText, String myReply, {String them = 'Sam'}) =>
+    Exchange(context: [turn(them, theirText)], reply: turn('Robin', myReply));
 
 ChatMemory samChat({
   int id = 1,
@@ -256,7 +253,10 @@ void main() {
         dimensions: 2,
       );
 
-      final first = await import([exchange('pub?', 'yes'), exchange('when', '8')]);
+      final first = await import([
+        exchange('pub?', 'yes'),
+        exchange('when', '8'),
+      ]);
       embedded.clear();
       final second = await import([
         exchange('pub?', 'yes'),
@@ -300,44 +300,47 @@ void main() {
       expect(plan.estimate.exchangeCount, 1);
     });
 
-    test('a different embedding model rebuilds the chat from scratch', () async {
-      final store = FakeStore();
-      final service = StyleMemoryService(
-        openai: embedderThat((input) => [1, 0, 0]),
-        store: store,
-      );
-      store.rows.add(
-        StoredExchange(
-          id: 1,
-          chatId: (await store.saveChat(samChat(dimensions: 2))).id,
-          context: [turn('Sam', 'pub?')],
-          contextText: 'Sam: pub?',
-          replyText: 'yes',
-          vector: VectorMath.normalise([1, 0]),
-          hash: StoredExchange.contentHash('Sam: pub?', 'yes'),
-        ),
-      );
+    test(
+      'a different embedding model rebuilds the chat from scratch',
+      () async {
+        final store = FakeStore();
+        final service = StyleMemoryService(
+          openai: embedderThat((input) => [1, 0, 0]),
+          store: store,
+        );
+        store.rows.add(
+          StoredExchange(
+            id: 1,
+            chatId: (await store.saveChat(samChat(dimensions: 2))).id,
+            context: [turn('Sam', 'pub?')],
+            contextText: 'Sam: pub?',
+            replyText: 'yes',
+            vector: VectorMath.normalise([1, 0]),
+            hash: StoredExchange.contentHash('Sam: pub?', 'yes'),
+          ),
+        );
 
-      final plan = await service.plan(
-        exchanges: [exchange('pub?', 'yes')],
-        myName: 'Robin',
-        theirName: 'Sam',
-        embeddingModel: 'text-embedding-3-small',
-        dimensions: 3,
-      );
-      expect(plan.replacesExisting, isTrue);
-      expect(plan.toEmbed, hasLength(1));
+        final plan = await service.plan(
+          exchanges: [exchange('pub?', 'yes')],
+          myName: 'Robin',
+          theirName: 'Sam',
+          embeddingModel: 'text-embedding-3-small',
+          dimensions: 3,
+        );
+        expect(plan.replacesExisting, isTrue);
+        expect(plan.toEmbed, hasLength(1));
 
-      final chat = await service.build(
-        exchanges: [exchange('pub?', 'yes')],
-        myName: 'Robin',
-        theirName: 'Sam',
-        embeddingModel: 'text-embedding-3-small',
-        dimensions: 3,
-      );
-      expect(chat.dimensions, 3);
-      expect(store.rows.single.vector, hasLength(3));
-    });
+        final chat = await service.build(
+          exchanges: [exchange('pub?', 'yes')],
+          myName: 'Robin',
+          theirName: 'Sam',
+          embeddingModel: 'text-embedding-3-small',
+          dimensions: 3,
+        );
+        expect(chat.dimensions, 3);
+        expect(store.rows.single.vector, hasLength(3));
+      },
+    );
 
     test('another person starts a separate chat', () async {
       final store = FakeStore();
@@ -478,6 +481,56 @@ void main() {
       expect(row.context, hasLength(4));
       expect(row.replyText, 'see you there');
       expect(saved.savedCount, 1);
+    });
+  });
+
+  group('voiceSample', () {
+    StoredExchange reply(int chatId, String text, int day) => StoredExchange(
+      id: -1,
+      chatId: chatId,
+      context: const [],
+      contextText: '',
+      replyText: text,
+      vector: VectorMath.normalise([1, 0]),
+      timestamp: DateTime(2026, 1, day),
+    );
+
+    test('recent first, no repeats, mostly from the chat replied in', () async {
+      final store = FakeStore(
+        chats: [
+          samChat(),
+          samChat(id: 2, them: 'Mum'),
+        ],
+        rows: [
+          reply(1, 'old sam', 1),
+          reply(1, 'omw', 5),
+          reply(1, 'OMW', 6),
+          reply(1, 'x' * 200, 7),
+          reply(1, 'newest sam', 9),
+          reply(2, 'love you x', 8),
+          reply(2, 'ok mum', 2),
+        ],
+      );
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0]),
+        store: store,
+      );
+      final sample = await service.voiceSample(
+        chatIds: {1, 2},
+        preferChatId: 1,
+        count: 3,
+      );
+      // Two from Sam's chat (newest first, "omw" once, the 200-character
+      // reply skipped), one from the other ticked chat.
+      expect(sample, ['newest sam', 'OMW', 'love you x']);
+    });
+
+    test('nothing ticked, nothing sampled', () async {
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0]),
+        store: FakeStore(),
+      );
+      expect(await service.voiceSample(chatIds: {}), isEmpty);
     });
   });
 

@@ -91,22 +91,20 @@ void main() {
         });
       }
       chatBodies.add(body);
-      final wantsJson = body['response_format'] != null;
+      final system =
+          ((body['messages']! as List).first as Map)['content'] as String;
+      // Drafts for the answers, for the topic change, or for a tweak.
+      final drafts = system.contains('You had drafted')
+          ? ['nah']
+          : system.contains('do not answer')
+          ? ['did you see the match', 'did you see the match']
+          : ['yeah\ngo on then\nhalf 8?', 'cant tonight', 'cant tonight'];
       return _json({
         'choices': [
-          {
-            'message': {
-              'content': wantsJson
-                  ? jsonEncode({
-                      'replies': [
-                        {'kind': 'reply', 'text': 'yeah\ngo on then\nhalf 8?'},
-                        {'kind': 'reply', 'text': 'cant tonight'},
-                        {'kind': 'new_topic', 'text': 'did you see the match'},
-                      ],
-                    })
-                  : 'nah',
+          for (final text in drafts)
+            {
+              'message': {'content': text},
             },
-          },
         ],
       });
     }),
@@ -157,15 +155,20 @@ void main() {
 
     await pasteAndWrite(tester);
 
-    // Only the generation call: no screenshot to read.
-    expect(chatBodies, hasLength(1));
-    final prompt =
-        ((chatBodies.single['messages']! as List).last as Map)['content']
-            as String;
-    expect(prompt, contains('Sam: pub later?'));
-    expect(prompt, contains('Robin: maybe'));
-    expect(prompt, contains('how Robin texts, in numbers'));
-    expect(prompt, contains('a line break means a separate bubble'));
+    // Only generation calls: drafts for the answers and for the topic
+    // change. No screenshot to read.
+    expect(chatBodies, hasLength(2));
+    final messages = chatBodies.first['messages']! as List;
+    String content(int i) => (messages[i] as Map)['content'] as String;
+    // The live chat is the last turn, your own line marked.
+    expect(content(messages.length - 1), 'pub later?\n(you) maybe\ngo on');
+    // The stored exchange is in as a real turn: theirs, then your reply.
+    expect(content(1), 'pub?');
+    expect(content(2), 'go on then');
+    final system = content(0);
+    expect(system, contains("Measured from 10 of Robin's real replies"));
+    expect(system, contains('a line break means a separate bubble'));
+    expect(system, contains('- go on then'), reason: 'the voice sample');
 
     expect(find.text('Three ways you’d answer that'), findsOneWidget);
     expect(find.text('did you see the match'), findsOneWidget);
@@ -200,7 +203,7 @@ void main() {
     expect(find.text('nah'), findsOneWidget);
     expect(find.text('did you see the match'), findsOneWidget);
     final refine =
-        ((chatBodies.last['messages']! as List).last as Map)['content']
+        ((chatBodies.last['messages']! as List).first as Map)['content']
             as String;
     expect(refine, contains('cant tonight'));
     expect(refine, contains('Make it shorter'));

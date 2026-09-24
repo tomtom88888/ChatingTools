@@ -13,6 +13,7 @@ import 'package:replylikeme/models/style_profile.dart';
 import 'package:replylikeme/services/openai_exception.dart';
 import 'package:replylikeme/services/openai_service.dart';
 import 'package:replylikeme/services/reply_generator.dart';
+import 'package:replylikeme/services/style_conformer.dart';
 
 ChatTurn turn(String sender, String text) =>
     ChatTurn(sender: sender, text: text, messageCount: 1);
@@ -65,76 +66,6 @@ void main() {
     });
   });
 
-  group('prompts', () {
-    test('the system prompt names every trait that must be matched', () {
-      final prompt = ReplyGenerator.buildSystemPrompt(settings);
-      expect(prompt, contains('Robin'));
-      expect(prompt, contains('Sam'));
-      for (final trait in [
-        'tone',
-        'length',
-        'slang',
-        'emoji',
-        'capitalisation',
-        'language',
-      ]) {
-        expect(prompt.toLowerCase(), contains(trait));
-      }
-      expect(prompt, contains('never sound like an assistant'));
-    });
-
-    test('the user prompt carries the retrieved real examples', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub later?')],
-        examples: [example('drinks tonight?', 'yeah go on then', 0.9)],
-        settings: settings,
-        askForJson: true,
-      );
-      expect(prompt, contains('Sam: drinks tonight?'));
-      expect(prompt, contains('yeah go on then'));
-      expect(prompt, contains('Sam: pub later?'));
-      expect(prompt, contains('"replies"'));
-    });
-
-    test('says so plainly when there is nothing to retrieve', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'hi')],
-        examples: const [],
-        settings: settings,
-        askForJson: true,
-      );
-      expect(prompt, contains('No past examples'));
-    });
-
-    test('trims the conversation to the configured context window', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [
-          turn('Sam', 'one'),
-          turn('Robin', 'two'),
-          turn('Sam', 'three'),
-        ],
-        examples: const [],
-        settings: settings.copyWith(contextTurns: 2),
-        askForJson: true,
-      );
-      // The dropped turn's transcript line, not the bare word: the topic-change
-      // instruction legitimately says "exactly one".
-      expect(prompt, isNot(contains('Sam: one')));
-      expect(prompt, contains('Sam: three'));
-    });
-
-    test('asks for a bare message when a fine-tuned model will answer', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'hi')],
-        examples: const [],
-        settings: settings,
-        askForJson: false,
-      );
-      expect(prompt, contains('Output only the message itself'));
-      expect(prompt, isNot(contains('"replies"')));
-    });
-  });
-
   group('the editable system prompt', () {
     test('the default is a template, not finished text', () {
       expect(AppSettings.defaultSystemPrompt, contains('{me}'));
@@ -153,7 +84,8 @@ void main() {
       final prompt = ReplyGenerator.buildSystemPrompt(
         settings.copyWith(systemPrompt: 'Answer as {me}. Be terse.'),
       );
-      expect(prompt, 'Answer as Robin. Be terse.');
+      expect(prompt, startsWith('Answer as Robin. Be terse.'));
+      expect(prompt, isNot(contains('not an assistant')));
     });
 
     test('an empty edit falls back rather than sending no instructions', () {
@@ -192,376 +124,287 @@ void main() {
       final prompt = ReplyGenerator.buildSystemPrompt(
         settings.copyWith(systemPrompt: '{me} is replying to {them}. {me}!'),
       );
-      expect(prompt, 'Robin is replying to Sam. Robin!');
+      expect(prompt, startsWith('Robin is replying to Sam. Robin!'));
     });
   });
 
-  group('parseVariants', () {
-    test('reads the typed replies array', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":['
-        '{"kind":"reply","text":"yeah"},'
-        '{"kind":"reply","text":"yeah go on"},'
-        '{"kind":"new_topic","text":"anyway did you see the thing"}]}',
-        expected: 3,
-      );
-      expect(variants.map((v) => v.text), [
-        'yeah',
-        'yeah go on',
-        'anyway did you see the thing',
+  group('the request', () {
+    final examples = [
+      example('drinks tonight?', 'go on then', 0.9),
+      example('cinema?', 'nah skint', 0.6),
+    ];
+
+    List<Map<String, Object?>> build({
+      String note = '',
+      bool newTopic = false,
+      StyleProfile profile = StyleProfile.empty,
+      List<String> voiceSample = const [],
+    }) => ReplyGenerator.buildMessages(
+      conversation: [
+        turn('Sam', 'pub?'),
+        turn('Robin', 'maybe'),
+        turn('Sam', 'go on'),
+      ],
+      examples: examples,
+      settings: settings,
+      note: note,
+      newTopic: newTopic,
+      profile: profile,
+      voiceSample: voiceSample,
+    );
+
+    String system(List<Map<String, Object?>> m) =>
+        m.first['content']! as String;
+
+    test('puts your real replies in as your own earlier messages', () {
+      final m = build();
+      expect(m.map((x) => x['role']), [
+        'system',
+        'user',
+        'assistant',
+        'user',
+        'assistant',
+        'user',
       ]);
-      expect(variants.map((v) => v.kind), [
-        SuggestionKind.reply,
-        SuggestionKind.reply,
-        SuggestionKind.newTopic,
+      // Least similar first, so the closest match sits next to the live chat.
+      expect(m[1]['content'], 'cinema?');
+      expect(m[2]['content'], 'nah skint');
+      expect(m[3]['content'], 'drinks tonight?');
+      expect(m[4]['content'], 'go on then');
+    });
+
+    test('ends with the live chat, your earlier lines marked', () {
+      expect(build().last['content'], 'pub?\n(you) maybe\ngo on');
+    });
+
+    test('keeps only the most recent context turns of the live chat', () {
+      final m = ReplyGenerator.buildMessages(
+        conversation: [
+          for (var i = 0; i < 20; i++) turn(i.isEven ? 'Sam' : 'Robin', 'm$i'),
+          turn('Sam', 'last'),
+        ],
+        examples: const [],
+        settings: settings.copyWith(contextTurns: 3),
+      );
+      expect((m.last['content']! as String).split('\n'), [
+        'm18',
+        '(you) m19',
+        'last',
       ]);
     });
 
-    test('accepts the spellings a model might choose for the kind', () {
-      for (final spelling in ['new_topic', 'newTopic', 'new topic', 'TOPIC']) {
-        final variants = ReplyGenerator.parseVariants(
-          '{"replies":[{"kind":"$spelling","text":"anyway"}]}',
-          expected: 1,
-        );
-        expect(variants.single.kind, SuggestionKind.newTopic, reason: spelling);
-      }
-    });
-
-    test('an unknown or missing kind is a plain reply', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":[{"text":"yeah"},{"kind":"banter","text":"ha"}]}',
-        expected: 2,
-      );
-      expect(variants.every((v) => v.kind == SuggestionKind.reply), isTrue);
-    });
-
-    test('plain strings still work, as plain replies', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":["yeah","nah"]}',
-        expected: 2,
-      );
-      expect(variants.map((v) => v.text), ['yeah', 'nah']);
-      expect(variants.every((v) => v.kind == SuggestionKind.reply), isTrue);
-    });
-
-    test('keeps the first topic change and demotes the rest', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":['
-        '{"kind":"new_topic","text":"anyway"},'
-        '{"kind":"new_topic","text":"also"},'
-        '{"kind":"new_topic","text":"oh and"}]}',
-        expected: 3,
-      );
-      expect(variants.where((v) => v.isNewTopic).length, 1);
-      expect(variants.first.isNewTopic, isTrue);
-    });
-
-    test('never invents a topic change the model did not return', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":[{"kind":"reply","text":"yeah"},'
-        '{"kind":"reply","text":"nah"}]}',
-        expected: 2,
-      );
-      expect(variants.any((v) => v.isNewTopic), isFalse);
-    });
-
-    test('drops duplicates that differ only in case', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":["Yeah","yeah","nah"]}',
-        expected: 3,
-      );
-      expect(variants.map((v) => v.text), ['Yeah', 'nah']);
-    });
-
-    test('caps at the requested count', () {
-      final variants = ReplyGenerator.parseVariants(
-        '{"replies":["a","b","c","d","e"]}',
-        expected: 3,
-      );
-      expect(variants, hasLength(3));
-    });
-
-    test('strips the quotes and labels models like to add', () {
-      final variants = ReplyGenerator.parseVariants(
-        r'{"replies":["\"yeah ok\"","Reply: on my way"]}',
-        expected: 2,
-      );
-      expect(variants.map((v) => v.text), ['yeah ok', 'on my way']);
-    });
-
-    test('falls back to the whole answer when the model ignores JSON', () {
-      final variants = ReplyGenerator.parseVariants(
-        'yeah sounds good',
-        expected: 3,
-      );
-      expect(variants.single.text, 'yeah sounds good');
-    });
-
-    test('complains when there is nothing usable at all', () {
+    test('tells the model it is you, not an assistant', () {
+      final text = system(build());
+      expect(text, contains('You are Robin'));
+      expect(text, contains('not an assistant'));
       expect(
-        () => ReplyGenerator.parseVariants('{"replies":[]}', expected: 3),
-        throwsA(isA<OpenAiException>()),
+        text,
+        contains('each assistant message is exactly what Robin sent back'),
       );
-    });
-  });
-
-  group('the note', () {
-    test('is included and told to outrank the examples', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: true,
-        note: "tell her I'm running late",
-      );
-      expect(prompt, contains("tell her I'm running late"));
-      expect(prompt, contains('It decides what the message says'));
-      expect(prompt, contains('Do not quote the note back'));
+      expect(text, isNot(contains('{me}')));
     });
 
-    test('is left out entirely when empty', () {
-      for (final empty in ['', '   ']) {
-        final prompt = ReplyGenerator.buildUserPrompt(
-          conversation: [turn('Sam', 'pub?')],
-          examples: const [],
-          settings: settings,
-          askForJson: true,
-          note: empty,
-        );
-        expect(prompt, isNot(contains('wants this message to do')));
-      }
-    });
-  });
-
-  group('the topic-change option', () {
-    test('is asked for once, alongside the plain replies', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: true,
-      );
-      expect(prompt, contains('Give 3 options'));
-      expect(prompt, contains('2 of them answer what was just said'));
-      expect(prompt, contains('Exactly one of them does not answer'));
-      expect(prompt, contains('new_topic'));
+    test('carries the note, and keeps it out of the chat itself', () {
+      final m = build(note: "say I'll be late");
+      expect(system(m), contains("Robin wants it to: say I'll be late"));
+      expect(m.last['content'], isNot(contains('late')));
     });
 
-    test('is not asked for when only one option is wanted', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings.copyWith(variantCount: 1),
-        askForJson: true,
+    test('asks for a change of subject only when told to', () {
+      expect(system(build()), isNot(contains('do not answer')));
+      expect(
+        system(build(newTopic: true)),
+        contains('do not answer what Sam just said'),
       );
-      expect(prompt, contains('Give 1 options'));
-      expect(prompt, isNot(contains('Exactly one of them does not answer')));
     });
 
-    test('has its own instruction on the fine-tuned path', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: false,
-        askForNewTopic: true,
-      );
-      expect(prompt, contains('do not answer what was just said'));
-      expect(prompt, contains('change the topic'));
+    test('includes the measured habits and bubble guidance', () {
+      final profile = StyleProfile.measure([
+        for (var i = 0; i < 10; i++)
+          const ChatTurn(sender: 'Robin', text: 'haha\nok', messageCount: 2),
+      ], me: 'Robin');
+      final text = system(build(profile: profile));
+      expect(text, contains("Measured from 10 of Robin's real replies"));
+      expect(text, contains('a line break means a separate bubble'));
+    });
+
+    test('includes a sample of real messages, one per line', () {
+      final text = system(build(voiceSample: ['omw', 'haha\nyes']));
+      expect(text, contains('- omw'));
+      expect(text, contains('- haha / yes'));
+    });
+
+    test('says nothing about habits or samples when there are none', () {
+      final text = system(build());
+      expect(text, isNot(contains('Measured from')));
+      expect(text, isNot(contains('really sent')));
     });
   });
 
   group('generate', () {
+    const habitual = 'ok see you there';
+    // Twenty lowercase, full-stop-free, emoji-free replies of about 4 words.
+    final profile = StyleProfile.measureTexts([
+      for (var i = 0; i < 20; i++) habitual,
+    ]);
+
     OpenAiService serviceThat(
-      Future<http.Response> Function(http.Request) handler,
-    ) => OpenAiService(
+      List<String> Function(Map<String, Object?> body) answer, {
+      List<Map<String, Object?>>? sent,
+    }) => OpenAiService(
       apiKey: 'sk-test-0123456789abcdefghij',
-      client: MockClient(handler),
       maxRetries: 0,
-    );
-
-    http.Response chatReply(String content) => http.Response(
-      jsonEncode({
-        'choices': [
-          {
-            'message': {'content': content},
-          },
-        ],
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, Object?>;
+        sent?.add(body);
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              for (final text in answer(body))
+                {
+                  'message': {'content': text},
+                },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
       }),
-      200,
-      headers: {'content-type': 'application/json'},
     );
 
-    test('makes one JSON call with a base model', () async {
-      var calls = 0;
-      Map<String, Object?>? sent;
+    bool isTopic(Map<String, Object?> body) =>
+        (((body['messages']! as List).first as Map)['content'] as String)
+            .contains('do not answer');
+
+    test('keeps the drafts most like you, then adds a topic change', () async {
+      final sent = <Map<String, Object?>>[];
       final generator = ReplyGenerator(
-        openai: serviceThat((request) async {
-          calls++;
-          sent = jsonDecode(request.body) as Map<String, Object?>;
-          return chatReply(
-            '{"replies":[{"kind":"reply","text":"a"},'
-            '{"kind":"reply","text":"b"},'
-            '{"kind":"new_topic","text":"c"}]}',
-          );
-        }),
+        openai: serviceThat(
+          (body) => isTopic(body)
+              ? [
+                  'anyway did u see the match',
+                  'Anyway, how was your week at work?',
+                ]
+              : [
+                  'Sounds great! I would absolutely love to come along tonight.',
+                  'yeah go on',
+                  'ok see u there',
+                  'Sure.',
+                ],
+          sent: sent,
+        ),
       );
 
       final variants = await generator.generate(
         conversation: [turn('Sam', 'pub?')],
         examples: [example('drinks?', 'go on then', 0.8)],
         settings: settings,
+        profile: profile,
       );
 
-      expect(variants.map((v) => v.text), ['a', 'b', 'c']);
-      expect(calls, 1);
-      expect(sent!['model'], AppSettings.defaultGenerationModel);
-      expect(sent!['response_format'], isNotNull);
-    });
-
-    test('uses the fine-tuned model and one plain call per variant', () async {
-      final models = <String>[];
-      final generator = ReplyGenerator(
-        openai: serviceThat((request) async {
-          final body = jsonDecode(request.body) as Map<String, Object?>;
-          models.add(body['model']! as String);
-          expect(body.containsKey('response_format'), isFalse);
-          return chatReply('reply ${models.length}');
-        }),
-      );
-
-      final variants = await generator.generate(
-        conversation: [turn('Sam', 'pub?')],
-        examples: [example('drinks?', 'go on then', 0.8)],
-        settings: settings.copyWith(
-          mode: TrainingMode.fineTune,
-          fineTunedModel: 'ft:gpt-4o-mini-2024-07-18:me::abc123',
-          variantCount: 3,
-        ),
-      );
-
-      expect(variants.map((v) => v.text), ['reply 1', 'reply 2', 'reply 3']);
-      expect(models, everyElement('ft:gpt-4o-mini-2024-07-18:me::abc123'));
-      // The last of the separate calls is the one asked to change the subject.
       expect(variants.map((v) => v.kind), [
         SuggestionKind.reply,
         SuggestionKind.reply,
         SuggestionKind.newTopic,
       ]);
+      // The long, polished draft is dropped; "Sure." loses its capital and
+      // full stop but is a word short of the other two.
+      expect(variants.map((v) => v.text), [
+        'ok see u there',
+        'yeah go on',
+        'anyway did u see the match',
+      ]);
+
+      // Two requests: drafts for the answers, drafts for the topic change,
+      // each asking for several choices at once and no JSON.
+      expect(sent, hasLength(2));
+      expect(sent.first['n'], 4);
+      expect(sent.last['n'], 2);
+      expect(sent.first.containsKey('response_format'), isFalse);
     });
 
-    test('still sends the retrieved examples to a fine-tuned model', () async {
-      String? prompt;
+    test('with one option asked for, there is no topic change', () async {
+      final sent = <Map<String, Object?>>[];
       final generator = ReplyGenerator(
-        openai: serviceThat((request) async {
-          final body = jsonDecode(request.body) as Map<String, Object?>;
-          prompt =
-              ((body['messages'] as List).last as Map)['content'] as String;
-          return chatReply('ok');
-        }),
+        openai: serviceThat((body) => ['yeah', 'yep'], sent: sent),
       );
-
-      await generator.generate(
+      final variants = await generator.generate(
         conversation: [turn('Sam', 'pub?')],
-        examples: [example('drinks?', 'go on then', 0.8)],
-        settings: settings.copyWith(
-          mode: TrainingMode.fineTune,
-          fineTunedModel: 'ft:model',
-          variantCount: 1,
-        ),
+        examples: const [],
+        settings: settings.copyWith(variantCount: 1),
       );
-      expect(prompt, contains('go on then'));
+      expect(variants.single.kind, SuggestionKind.reply);
+      expect(sent, hasLength(1));
     });
 
-    test('refuses when the last message is already mine', () async {
+    test('falls back to single requests when a model rejects n', () async {
+      var calls = 0;
       final generator = ReplyGenerator(
-        openai: serviceThat((request) async => chatReply('unused')),
-      );
-      await expectLater(
-        generator.generate(
-          conversation: [turn('Sam', 'hi'), turn('Robin', 'hey')],
-          examples: const [],
-          settings: settings,
+        openai: OpenAiService(
+          apiKey: 'sk-test-0123456789abcdefghij',
+          maxRetries: 0,
+          client: MockClient((request) async {
+            calls++;
+            final body = jsonDecode(request.body) as Map<String, Object?>;
+            if (body.containsKey('n')) {
+              return http.Response(
+                jsonEncode({
+                  'error': {
+                    'message':
+                        "Unsupported parameter: 'n' is not supported "
+                        'with this model.',
+                    'type': 'invalid_request_error',
+                  },
+                }),
+                400,
+              );
+            }
+            return http.Response(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {'content': 'draft $calls'},
+                  },
+                ],
+              }),
+              200,
+            );
+          }),
         ),
-        throwsA(
-          isA<OpenAiException>().having(
-            (e) => e.message,
-            'message',
-            contains('nothing to reply to'),
-          ),
-        ),
       );
+      final variants = await generator.generate(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings.copyWith(variantCount: 2),
+      );
+      expect(variants, hasLength(2));
+      // One rejected request, two single drafts; the topic change then goes
+      // straight to single requests.
+      expect(calls, 1 + 2 + 2);
     });
 
-    test('refuses an empty conversation', () async {
-      final generator = ReplyGenerator(
-        openai: serviceThat((request) async => chatReply('unused')),
-      );
+    test('refuses when the last message is yours', () async {
+      final generator = ReplyGenerator(openai: serviceThat((_) => ['x']));
       await expectLater(
         generator.generate(
-          conversation: const [],
+          conversation: [turn('Sam', 'pub?'), turn('Robin', 'yes')],
           examples: const [],
           settings: settings,
         ),
         throwsA(isA<OpenAiException>()),
       );
     });
-  });
 
-  group('measured style in the prompt', () {
-    final chatty = StyleProfile.measure([
-      for (var i = 0; i < 10; i++)
-        ChatTurn(sender: 'Robin', text: 'haha\nok', messageCount: 2),
-    ], me: 'Robin');
-    final single = StyleProfile.measureTexts([
-      for (var i = 0; i < 10; i++) 'ok',
-    ]);
-
-    test('includes the numbers and asks to stay inside them', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
+    test('strips a speaker name or quotes the model wrote', () async {
+      final generator = ReplyGenerator(
+        openai: serviceThat((_) => ['Robin: yeah', '"yeah go on"']),
+      );
+      final variants = await generator.generate(
         conversation: [turn('Sam', 'pub?')],
         examples: const [],
-        settings: settings,
-        askForJson: true,
-        profile: single,
+        settings: settings.copyWith(variantCount: 1),
       );
-      expect(prompt, contains('how Robin texts, in numbers'));
-      expect(prompt, contains('half are 1 word or fewer'));
-      expect(prompt, contains('out of character'));
-    });
-
-    test('asks for bubbles on separate lines when I split messages', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: true,
-        profile: chatty,
-      );
-      expect(prompt, contains('several bubbles in a row 100%'));
-      expect(prompt, contains('a line break means a separate bubble'));
-    });
-
-    test('asks for one bubble when I rarely split', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: false,
-        profile: single,
-      );
-      expect(prompt, contains('single bubble with no line breaks'));
-    });
-
-    test('says nothing about style with no profile', () {
-      final prompt = ReplyGenerator.buildUserPrompt(
-        conversation: [turn('Sam', 'pub?')],
-        examples: const [],
-        settings: settings,
-        askForJson: true,
-      );
-      expect(prompt, isNot(contains('in numbers')));
-      expect(prompt, isNot(contains('bubble')));
+      expect(variants.single.text, isIn(['yeah', 'yeah go on']));
     });
   });
 
@@ -583,7 +426,6 @@ void main() {
                 ],
               }),
               200,
-              headers: {'content-type': 'application/json'},
             );
           }),
         ),
@@ -602,13 +444,61 @@ void main() {
 
       expect(result.text, 'anyway, weekend?');
       expect(result.kind, SuggestionKind.newTopic);
-      final user = ((sent!['messages']! as List).last as Map)['content']
-          as String;
-      expect(user, contains('--- a draft of that message ---'));
-      expect(user, contains('how are your plans for the weekend'));
-      expect(user, contains('Make it shorter'));
+      final system =
+          ((sent!['messages']! as List).first as Map)['content'] as String;
+      expect(system, contains('You had drafted this as your next message'));
+      expect(system, contains('how are your plans for the weekend'));
+      expect(system, contains('Make it shorter'));
       // A topic change is refined as a topic change.
-      expect(user, contains('do not answer what was just said'));
+      expect(system, contains('do not answer what Sam just said'));
+    });
+  });
+
+  group('holding drafts to your habits', () {
+    final lowercase = StyleProfile.measureTexts([
+      for (var i = 0; i < 25; i++) 'ok see you there',
+    ]);
+
+    test('drops the capital, full stop and emoji you never use', () {
+      expect(
+        StyleConformer.conform('Sounds good. 😂\nSee you there.', lowercase),
+        'sounds good\nsee you there',
+      );
+    });
+
+    test('leaves "I" and acronyms their capitals', () {
+      expect(StyleConformer.conform("I'm late", lowercase), "I'm late");
+      expect(StyleConformer.conform('LOL same', lowercase), 'LOL same');
+    });
+
+    test('keeps what you do use', () {
+      final punctual = StyleProfile.measureTexts([
+        for (var i = 0; i < 25; i++) 'Sounds good. 😂',
+      ]);
+      expect(
+        StyleConformer.conform('Sounds good. 😂', punctual),
+        'Sounds good. 😂',
+      );
+    });
+
+    test('changes nothing with too few replies to be sure', () {
+      final few = StyleProfile.measureTexts(['ok', 'yes']);
+      expect(StyleConformer.conform('Sounds good.', few), 'Sounds good.');
+    });
+
+    test('ranks drafts by how typical their length is', () {
+      expect(
+        StyleConformer.rank([
+          'I would absolutely love to come along with you all tonight',
+          'ok',
+          'ok see u there',
+        ], lowercase),
+        [
+          'ok see u there',
+          'ok',
+          'I would absolutely love to come along with you all tonight',
+        ],
+      );
     });
   });
 }

@@ -150,6 +150,67 @@ class OpenAiService {
     return text.trim();
   }
 
+  /// Several independent completions of the same prompt — drafts to choose
+  /// between — returning every non-empty one.
+  ///
+  /// Uses the API's `n` parameter, so the prompt is sent and billed once.
+  /// A model that rejects `n` gets [count] separate requests instead.
+  Future<List<String>> chatDrafts({
+    required String model,
+    required List<ChatMessageJson> messages,
+    required int count,
+    double? temperature,
+    int? maxOutputTokens,
+    Duration? timeout,
+  }) async {
+    Future<List<String>> ask(int n) => _chatChoices(
+      model: model,
+      messages: messages,
+      temperature: temperature,
+      maxOutputTokens: maxOutputTokens,
+      jsonMode: false,
+      timeout: timeout ?? requestTimeout,
+      usageKind: UsageKind.generation,
+      n: n,
+    );
+
+    List<String> drafts;
+    if (count <= 1 || !_sendN) {
+      drafts = [
+        for (var i = 0; i < (count < 1 ? 1 : count); i++) ...await ask(1),
+      ];
+    } else {
+      try {
+        drafts = await ask(count);
+      } on OpenAiException catch (error) {
+        final complaint = error.message.toLowerCase();
+        final aboutN =
+            error.kind == OpenAiErrorKind.badRequest &&
+            (complaint.contains("'n'") ||
+                complaint.contains('"n"') ||
+                complaint.contains(' n ') ||
+                complaint.contains('number of choices'));
+        if (!aboutN) rethrow;
+        _sendN = false;
+        drafts = [for (var i = 0; i < count; i++) ...await ask(1)];
+      }
+    }
+    final kept = [
+      for (final d in drafts)
+        if (d.trim().isNotEmpty) d.trim(),
+    ];
+    if (kept.isEmpty) {
+      throw const OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'The model returned an empty reply. Try again.',
+      );
+    }
+    return kept;
+  }
+
+  /// Some models only return one choice; learned once, like the others.
+  bool _sendN = true;
+
   Future<String> _chat({
     required String model,
     required List<ChatMessageJson> messages,
@@ -158,10 +219,31 @@ class OpenAiService {
     required bool jsonMode,
     required Duration timeout,
     required UsageKind usageKind,
+  }) async => (await _chatChoices(
+    model: model,
+    messages: messages,
+    temperature: temperature,
+    maxOutputTokens: maxOutputTokens,
+    jsonMode: jsonMode,
+    timeout: timeout,
+    usageKind: usageKind,
+    n: 1,
+  )).first;
+
+  Future<List<String>> _chatChoices({
+    required String model,
+    required List<ChatMessageJson> messages,
+    required double? temperature,
+    required int? maxOutputTokens,
+    required bool jsonMode,
+    required Duration timeout,
+    required UsageKind usageKind,
+    required int n,
   }) async {
     // Up to two extra attempts, each dropping a parameter this model rejected.
     for (var attempt = 0; attempt < 3; attempt++) {
       final body = <String, Object?>{'model': model, 'messages': messages};
+      if (n > 1) body['n'] = n;
       if (maxOutputTokens != null) {
         body[_useMaxCompletionTokens ? 'max_completion_tokens' : 'max_tokens'] =
             maxOutputTokens;
@@ -180,7 +262,7 @@ class OpenAiService {
           timeout: timeout,
         );
         _report(json, kind: usageKind, model: model);
-        return _firstChoiceContent(json);
+        return _choiceContents(json);
       } on OpenAiException catch (error) {
         if (error.kind != OpenAiErrorKind.badRequest) rethrow;
         final complaint = error.message.toLowerCase();
@@ -206,7 +288,8 @@ class OpenAiService {
     );
   }
 
-  static String _firstChoiceContent(Map<String, Object?> json) {
+  /// The text of every choice in a completion, in order.
+  static List<String> _choiceContents(Map<String, Object?> json) {
     final choices = json['choices'];
     if (choices is! List || choices.isEmpty) {
       throw const OpenAiException(
@@ -214,7 +297,11 @@ class OpenAiService {
         'The response contained no choices.',
       );
     }
-    final message = (choices.first as Map)['message'];
+    return [for (final choice in choices) _contentOf(choice)];
+  }
+
+  static String _contentOf(Object? choice) {
+    final message = choice is Map ? choice['message'] : null;
     if (message is! Map) {
       throw const OpenAiException(
         OpenAiErrorKind.badResponse,

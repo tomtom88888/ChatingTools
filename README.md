@@ -67,6 +67,21 @@ split a message into several bubbles, and the short phrases you repeat. Those
 numbers go into the prompt, which stops the model drifting towards longer,
 tidier messages than you would ever send.
 
+**How a reply is written.** The model is not asked to imitate you; it is put
+in your place. Each retrieved exchange goes into the request as a real turn
+of the conversation — their lines, then your actual reply as the model's own
+previous message — with the closest match last, right before the live chat.
+The instructions say it *is* you, texting that person, and carry your
+measured habits, about 25 of your recent short messages as a sample of your
+voice, your note, and (for one option) the request to change the subject.
+
+The model then writes several plain drafts in one request. Each is tidied and
+held to your habits where the numbers are clear-cut — a capital you almost
+never use is lowered, a full stop you almost never type is dropped, emoji are
+removed if you never send any — and the drafts most typical of your length,
+bubbles and emoji are kept. With fewer than 20 replies measured, drafts are
+left as written.
+
 **Chat data** on the home screen shows the numbers behind each chat, counted
 from the export on the phone with no API calls: messages and words each, your
 typical reply times and how often each of you answers within five minutes,
@@ -123,7 +138,7 @@ the phone's own font.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 244 tests, no network or device needed
+flutter test          # 235 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -328,7 +343,7 @@ lib/
     settings/                settings widgets and the spending section
   theme/tokens.dart          the light and dark palettes, type and corners
   widgets/                   the shared widget kit, dialogs, formatting
-test/                        244 tests (218 unit, 26 widget)
+test/                        235 tests (209 unit, 26 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -360,7 +375,7 @@ them.
 flutter test
 ```
 
-244 tests, and no network or device is needed for any of them.
+235 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap

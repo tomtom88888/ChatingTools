@@ -58,6 +58,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   List<ChatMemory> _skipped = [];
   List<ChatTurn> _conversation = [];
   StyleProfile _profile = StyleProfile.empty;
+  List<String> _voiceSample = const [];
 
   /// A one-off instruction for this reply: what to say, as opposed to how.
   /// Cleared with the screenshot, because it belongs to this moment.
@@ -308,12 +309,17 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       final profile = chat != null && !chat.profile.isEmpty
           ? chat.profile
           : StyleProfile.mergeAll(enabled.map((c) => c.profile));
+      final voiceSample = await memory.voiceSample(
+        chatIds: {for (final c in enabled) c.id},
+        preferChatId: chat?.id,
+      );
       final variants = await generator.generate(
         conversation: conversation,
         examples: retrieved.examples,
         settings: named,
         note: _note,
         profile: profile,
+        voiceSample: voiceSample,
       );
       if (mounted) {
         setState(() {
@@ -321,6 +327,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           _examples = retrieved.examples;
           _skipped = retrieved.skipped;
           _profile = profile;
+          _voiceSample = voiceSample;
           _variants = variants;
         });
       }
@@ -350,6 +357,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         settings: named,
         note: _note,
         profile: _profile,
+        voiceSample: _voiceSample,
       );
       if (!mounted) return;
       setState(() {

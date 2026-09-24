@@ -285,7 +285,7 @@ class StyleMemoryService {
               // want it back.
               enabled: true,
               profile: profile.isEmpty ? base?.profile : profile,
-          stats: stats.isEmpty ? base?.stats : stats,
+              stats: stats.isEmpty ? base?.stats : stats,
             );
     return store.saveChat(
       chat,
@@ -340,6 +340,48 @@ class StyleMemoryService {
       examples: retrieval.select(query, candidates, limit: limit),
       skipped: skipped,
     );
+  }
+
+  /// Up to [count] of your real replies, for the model to hear your voice
+  /// in — short ones, most recent first, no two alike.
+  ///
+  /// Two thirds come from [preferChatId] when given (the chat being replied
+  /// in), the rest from the other ticked chats. Long replies are skipped:
+  /// they are rare, and the retrieved examples already show those.
+  Future<List<String>> voiceSample({
+    required Set<int> chatIds,
+    int? preferChatId,
+    int count = 25,
+  }) async {
+    if (chatIds.isEmpty || count < 1) return const [];
+    final rows = await store.all(chatIds: chatIds);
+    final ordered = [...rows]
+      ..sort((a, b) {
+        final at = a.timestamp;
+        final bt = b.timestamp;
+        if (at == null || bt == null) return b.id.compareTo(a.id);
+        return bt.compareTo(at);
+      });
+
+    final seen = <String>{};
+    final preferred = <String>[];
+    final others = <String>[];
+    for (final row in ordered) {
+      final reply = row.replyText.trim();
+      if (reply.isEmpty || reply.length > 160) continue;
+      if (!seen.add(reply.toLowerCase())) continue;
+      (row.chatId == preferChatId ? preferred : others).add(reply);
+    }
+    final fromPreferred = preferChatId == null ? 0 : (count * 2) ~/ 3;
+    final picked = [
+      ...preferred.take(fromPreferred),
+      ...others.take(count - preferred.take(fromPreferred).length),
+    ];
+    // Top up from the preferred chat if the others ran short.
+    if (picked.length < count) {
+      picked.addAll(preferred.skip(fromPreferred).take(count - picked.length));
+    }
+    return picked;
   }
 
   /// Stores a suggestion you actually sent as a new example in [chat], so the

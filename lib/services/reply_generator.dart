@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../models/app_settings.dart';
 import '../models/chat_turn.dart';
 import '../models/extracted_message.dart';
@@ -8,6 +6,7 @@ import '../models/stored_exchange.dart';
 import '../models/style_profile.dart';
 import 'openai_exception.dart';
 import 'openai_service.dart';
+import 'style_conformer.dart';
 
 /// A one-tap adjustment to a single suggestion.
 enum Refinement {
@@ -36,8 +35,17 @@ enum Refinement {
   };
 }
 
-/// Writes the next message as you, using your retrieved real replies as the
-/// only style reference.
+/// Writes the next message as you.
+///
+/// The model is not asked to imitate you; it is put in your place. Your
+/// retrieved real exchanges go in as genuine turns of the conversation —
+/// their lines as the user's, your actual reply as the model's own previous
+/// message — so writing the next message *is* continuing in your voice. The
+/// closest match sits last, right before the live chat.
+///
+/// The model then writes several plain drafts, which are held to the habits
+/// measured from your replies ([StyleConformer]) and ranked by how typical of
+/// you they are; the closest are kept.
 class ReplyGenerator {
   const ReplyGenerator({required this.openai});
 
@@ -78,19 +86,18 @@ class ReplyGenerator {
     return turns;
   }
 
-  /// Generates [AppSettings.variantCount] candidate replies.
-  ///
-  /// With a fine-tuned model the style already lives in the weights and the
-  /// model was trained to emit a bare reply, so variants come from separate
-  /// plain calls. With a base model one JSON-mode call returns all the variants
-  /// at once, which is cheaper and gives the model a reason to make them
-  /// genuinely different from each other.
+  /// How many drafts are written for each reply that is kept.
+  static const int draftsPerReply = 2;
+
+  /// Generates [AppSettings.variantCount] suggestions: all but the last
+  /// answer what was just said; the last changes the subject.
   Future<List<ReplySuggestion>> generate({
     required List<ChatTurn> conversation,
     required List<ScoredExchange> examples,
     required AppSettings settings,
     String note = '',
     StyleProfile profile = StyleProfile.empty,
+    List<String> voiceSample = const [],
   }) async {
     if (conversation.isEmpty) {
       throw const OpenAiException(
@@ -106,72 +113,72 @@ class ReplyGenerator {
       );
     }
 
-    final usingFineTune =
-        settings.mode == TrainingMode.fineTune && settings.hasFineTunedModel;
-    final model = settings.effectiveGenerationModel;
-    final systemPrompt = buildSystemPrompt(settings);
+    final count = settings.variantCount < 1 ? 1 : settings.variantCount;
+    final wantsTopicChange = count > 1;
+    final replies = wantsTopicChange ? count - 1 : count;
 
-    if (usingFineTune) {
-      // A fine-tuned model was trained to emit one bare reply, so each variant
-      // is its own call and the topic change is asked for explicitly on the
-      // last one rather than through a schema.
-      final variants = <ReplySuggestion>[];
-      for (var i = 0; i < settings.variantCount; i++) {
-        final wantsNewTopic =
-            settings.variantCount > 1 && i == settings.variantCount - 1;
-        final reply = await openai.chat(
-          model: model,
-          messages: [
-            {'role': 'system', 'content': systemPrompt},
-            {
-              'role': 'user',
-              'content': buildUserPrompt(
-                conversation: conversation,
-                examples: examples,
-                settings: settings,
-                note: note,
-                profile: profile,
-                askForJson: false,
-                askForNewTopic: wantsNewTopic,
-              ),
-            },
-          ],
-          temperature: 0.9,
-          maxOutputTokens: 400,
+    List<ChatMessageJson> messagesFor({required bool newTopic}) =>
+        buildMessages(
+          conversation: conversation,
+          examples: examples,
+          settings: settings,
+          note: note,
+          profile: profile,
+          voiceSample: voiceSample,
+          newTopic: newTopic,
         );
-        variants.add(
-          ReplySuggestion(
-            text: _tidy(reply),
-            kind: wantsNewTopic
-                ? SuggestionKind.newTopic
-                : SuggestionKind.reply,
-          ),
-        );
-      }
-      return _deduplicate(variants);
-    }
 
-    final raw = await openai.chat(
-      model: model,
-      messages: [
-        {'role': 'system', 'content': systemPrompt},
-        {
-          'role': 'user',
-          'content': buildUserPrompt(
-            conversation: conversation,
-            examples: examples,
-            settings: settings,
-            note: note,
-            profile: profile,
-            askForJson: true,
-          ),
-        },
-      ],
-      temperature: 0.9,
-      maxOutputTokens: 800,
-      jsonMode: true,
+    final answers = await _bestDrafts(
+      messagesFor(newTopic: false),
+      settings: settings,
+      profile: profile,
+      keep: replies,
     );
-    return parseVariants(raw, expected: settings.variantCount);
+    final suggestions = [
+      for (final text in answers) ReplySuggestion.reply(text),
+    ];
+    if (wantsTopicChange) {
+      final change = await _bestDrafts(
+        messagesFor(newTopic: true),
+        settings: settings,
+        profile: profile,
+        keep: 1,
+      );
+      // Only labelled a topic change because it was asked for as one.
+      suggestions.addAll([
+        for (final text in change)
+          ReplySuggestion(text: text, kind: SuggestionKind.newTopic),
+      ]);
+    }
+    return _deduplicate(suggestions);
+  }
+
+  /// Writes drafts, tidies and conforms them, and keeps the [keep] most like
+  /// you.
+  Future<List<String>> _bestDrafts(
+    List<ChatMessageJson> messages, {
+    required AppSettings settings,
+    required StyleProfile profile,
+    required int keep,
+  }) async {
+    final drafts = await openai.chatDrafts(
+      model: settings.effectiveGenerationModel,
+      messages: messages,
+      count: keep * draftsPerReply,
+      temperature: 0.9,
+      maxOutputTokens: 300,
+    );
+    final cleaned = <String>[];
+    final seen = <String>{};
+    for (final draft in drafts) {
+      final text = StyleConformer.conform(
+        _tidy(draft, name: settings.myName),
+        profile,
+      );
+      if (text.isEmpty || !seen.add(text.toLowerCase())) continue;
+      cleaned.add(text);
+    }
+    return StyleConformer.rank(cleaned, profile).take(keep).toList();
   }
 
   /// Rewrites one suggestion according to [refinement], keeping what it is
@@ -184,37 +191,33 @@ class ReplyGenerator {
     required AppSettings settings,
     String note = '',
     StyleProfile profile = StyleProfile.empty,
+    List<String> voiceSample = const [],
   }) async {
     final me = _name(settings.myName, 'the user');
-    final prompt = StringBuffer()
-      ..write(
-        buildUserPrompt(
-          conversation: conversation,
-          examples: examples,
-          settings: settings,
-          note: note,
-          profile: profile,
-          askForJson: false,
-          askForNewTopic: suggestion.isNewTopic,
-        ),
-      )
-      ..writeln()
-      ..writeln('--- a draft of that message ---')
-      ..writeln(suggestion.text)
-      ..writeln()
-      ..writeln(refinement.instruction(me))
-      ..write('Output only the rewritten message.');
-
-    final raw = await openai.chat(
-      model: settings.effectiveGenerationModel,
-      messages: [
-        {'role': 'system', 'content': buildSystemPrompt(settings)},
-        {'role': 'user', 'content': prompt.toString()},
-      ],
-      temperature: 0.8,
-      maxOutputTokens: 400,
+    final messages = buildMessages(
+      conversation: conversation,
+      examples: examples,
+      settings: settings,
+      note: note,
+      profile: profile,
+      voiceSample: voiceSample,
+      newTopic: suggestion.isNewTopic,
+      extra:
+          'You had drafted this as your next message:\n'
+          '${suggestion.text}\n\n'
+          '${refinement.instruction(me)} Send the rewritten message only.',
     );
-    final text = _tidy(raw);
+    final drafts = await openai.chatDrafts(
+      model: settings.effectiveGenerationModel,
+      messages: messages,
+      count: 1,
+      temperature: 0.8,
+      maxOutputTokens: 300,
+    );
+    final text = StyleConformer.conform(
+      _tidy(drafts.first, name: settings.myName),
+      profile,
+    );
     if (text.isEmpty) {
       throw const OpenAiException(
         OpenAiErrorKind.badResponse,
@@ -224,130 +227,145 @@ class ReplyGenerator {
     return suggestion.copyWith(text: text);
   }
 
-  /// The system prompt, with the two names filled in.
-  ///
-  /// The wording comes from settings so it can be edited in the app; the
-  /// default names every trait a model would otherwise smooth away, because
-  /// one told only "match my style" writes polished, punctuated, assistant
-  /// prose.
-  static String buildSystemPrompt(AppSettings settings) {
+  // ------------------------------------------------------------------ prompts
+
+  /// The whole request: the system prompt, each retrieved exchange as a real
+  /// back-and-forth (least similar first, so the closest sits nearest the live
+  /// chat), then the live chat as the last user turn.
+  static List<ChatMessageJson> buildMessages({
+    required List<ChatTurn> conversation,
+    required List<ScoredExchange> examples,
+    required AppSettings settings,
+    String note = '',
+    StyleProfile profile = StyleProfile.empty,
+    List<String> voiceSample = const [],
+    bool newTopic = false,
+    String? extra,
+  }) {
+    final me = settings.myName;
+    return [
+      {
+        'role': 'system',
+        'content': buildSystemPrompt(
+          settings,
+          profile: profile,
+          voiceSample: voiceSample,
+          note: note,
+          newTopic: newTopic,
+          hasExamples: examples.isNotEmpty,
+          extra: extra,
+        ),
+      },
+      for (final example in examples.reversed) ...[
+        {
+          'role': 'user',
+          'content': _theirSide(example.exchange.context, me: me),
+        },
+        {'role': 'assistant', 'content': example.exchange.replyText},
+      ],
+      {
+        'role': 'user',
+        'content': buildUserPrompt(
+          conversation: conversation,
+          settings: settings,
+        ),
+      },
+    ];
+  }
+
+  /// A retrieved exchange's lead-up, as it appears in a user turn. Your own
+  /// earlier lines in it are kept and marked, since they are part of what
+  /// was said.
+  static String _theirSide(List<ChatTurn> context, {required String me}) =>
+      context
+          .map((t) => t.sender == me ? '(you) ${t.text}' : t.text)
+          .join('\n');
+
+  /// The live chat as the final user turn: the other person's lines, with
+  /// your own earlier ones marked, in the same shape as the examples.
+  static String buildUserPrompt({
+    required List<ChatTurn> conversation,
+    required AppSettings settings,
+  }) {
+    final recent = conversation.length > settings.contextTurns
+        ? conversation.sublist(conversation.length - settings.contextTurns)
+        : conversation;
+    return _theirSide(recent, me: settings.myName);
+  }
+
+  /// The system prompt: the editable instructions with the names filled in,
+  /// then what this particular message needs — the measured habits, a sample
+  /// of real messages, the note, and whether to change the subject.
+  static String buildSystemPrompt(
+    AppSettings settings, {
+    StyleProfile profile = StyleProfile.empty,
+    List<String> voiceSample = const [],
+    String note = '',
+    bool newTopic = false,
+    bool hasExamples = true,
+    String? extra,
+  }) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
     final them = settings.theirName.isEmpty
         ? 'someone they know'
         : settings.theirName;
-    return settings.effectiveSystemPrompt
-        .replaceAll('{me}', me)
-        .replaceAll('{them}', them);
-  }
+    final out = StringBuffer(
+      settings.effectiveSystemPrompt
+          .replaceAll('{me}', me)
+          .replaceAll('{them}', them),
+    );
 
-  /// The user prompt: retrieved real exchanges, the live conversation, the
-  /// user's own note, and what to produce.
-  static String buildUserPrompt({
-    required List<ChatTurn> conversation,
-    required List<ScoredExchange> examples,
-    required AppSettings settings,
-    required bool askForJson,
-    String note = '',
-    bool askForNewTopic = false,
-    StyleProfile profile = StyleProfile.empty,
-  }) {
-    final buffer = StringBuffer();
-    final me = _name(settings.myName, 'the user');
-
-    if (examples.isNotEmpty) {
-      buffer.writeln(
-        'Real past exchanges from this chat, most similar to the current one '
-        'first. The reply line is what ${_name(settings.myName, "you")} '
-        'actually sent:',
-      );
-      buffer.writeln();
-      for (var i = 0; i < examples.length; i++) {
-        final example = examples[i];
-        buffer.writeln('--- example ${i + 1} ---');
-        buffer.writeln(example.exchange.contextText);
-        buffer.writeln(
-          '${_name(settings.myName, "You")} replied: '
-          '${example.exchange.replyText}',
-        );
-        buffer.writeln();
-      }
-    } else {
-      buffer.writeln(
-        'No past examples are available, so write plainly and briefly, the way '
-        'people text.',
-      );
-      buffer.writeln();
+    void section(String text) {
+      if (text.trim().isEmpty) return;
+      out
+        ..writeln()
+        ..writeln()
+        ..write(text.trim());
     }
 
-    final measured = profile.describe(me);
-    if (measured.isNotEmpty) {
-      buffer.writeln('--- how $me texts, in numbers ---');
-      buffer.writeln(measured);
-      buffer.writeln(
-        'Stay inside these habits: a reply much longer, tidier or more '
-        'punctuated than this is out of character.',
+    section(
+      'How this chat is laid out: each user message is what $them said '
+      '(lines marked "(you)" are yours, from earlier), and each assistant '
+      'message is exactly what $me sent back.'
+      '${hasExamples ? " The earlier pairs are real moments from $me's chat "
+                "history, chosen because they resemble this one — the last "
+                "pair is the closest." : ""}',
+    );
+
+    final habits = profile.describe(me);
+    if (habits.isNotEmpty) {
+      section(
+        '$habits\nStay inside these habits. A message longer, tidier or '
+        'more punctuated than this is out of character.',
       );
-      buffer.writeln();
+    }
+    section(_bubbleGuidance(profile, me));
+
+    if (voiceSample.isNotEmpty) {
+      section(
+        'Other messages $me has really sent, to hear the voice (not to '
+        'copy):\n${voiceSample.map((m) => '- ${m.replaceAll('\n', ' / ')}').join('\n')}',
+      );
     }
 
-    final recent = conversation.length > settings.contextTurns
-        ? conversation.sublist(conversation.length - settings.contextTurns)
-        : conversation;
-
-    buffer.writeln('--- the conversation right now ---');
-    for (final turn in recent) {
-      buffer.writeln('${turn.sender}: ${turn.text}');
-    }
-    buffer.writeln();
-
-    // The note is the one place the user speaks directly to the model, so it
-    // outranks the examples where the two disagree - the examples describe how
-    // they write, the note says what they want to say this time.
     if (note.trim().isNotEmpty) {
-      buffer.writeln('--- what $me wants this message to do ---');
-      buffer.writeln(note.trim());
-      buffer.writeln();
-      buffer.writeln(
-        'Follow that note. It decides what the message says; the examples only '
-        'decide how it is written. Do not quote the note back.',
+      section(
+        'For this next message only, $me wants it to: ${note.trim()}\n'
+        'That decides what the message says; how it is written still has to '
+        'be $me. Do not quote the note back.',
       );
-      buffer.writeln();
     }
 
-    final bubbles = _bubbleGuidance(profile, me);
-
-    if (askForJson) {
-      final count = settings.variantCount;
-      buffer.writeln('Write the next message as $me. Give $count options.');
-      if (count > 1) {
-        buffer.writeln(
-          '- ${count - 1} of them answer what was just said.\n'
-          '- Exactly one of them does not answer: it moves the conversation '
-          'on to a different subject, the way $me would change the topic. It '
-          'still has to sound like $me and fit where the chat has got to.',
-        );
-      }
-      buffer.writeln(
-        'Vary the length and the angle, not just the wording. Respond with '
-        'JSON only, of the form {"replies": [{"kind": "reply", "text": "..."}, '
-        '{"kind": "new_topic", "text": "..."}]}, and put nothing but the '
-        'message text in each "text".',
+    if (newTopic) {
+      section(
+        'For this next message, do not answer what $them just said. Move the '
+        'conversation on to something else, the way $me would change the '
+        'subject with $them — still sounding like $me, and still fitting '
+        'where the chat has got to.',
       );
-      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
-    } else if (askForNewTopic) {
-      buffer.writeln(
-        'Write the next message as $me, but do not answer what was just said '
-        '\u2014 move the conversation on to a different subject, the way $me '
-        'would change the topic. Output only the message itself.',
-      );
-      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
-    } else {
-      buffer.writeln(
-        'Write the next message as $me. Output only the message itself.',
-      );
-      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
     }
-    return buffer.toString().trimRight();
+    section(extra ?? '');
+    return out.toString();
   }
 
   /// Whether to split a message into bubbles, from how often [me] does.
@@ -370,93 +388,6 @@ class ReplyGenerator {
   static String _name(String name, String fallback) =>
       name.isEmpty ? fallback : name;
 
-  /// Validates the JSON-mode reply and returns the typed suggestions.
-  ///
-  /// Accepts the documented shape, a bare array, and plain strings, because a
-  /// model that ignores the schema should still produce something usable
-  /// rather than an error.
-  static List<ReplySuggestion> parseVariants(
-    String raw, {
-    required int expected,
-  }) {
-    final cleaned = _stripFence(raw);
-    Object? decoded;
-    try {
-      decoded = jsonDecode(cleaned);
-    } on FormatException {
-      decoded = null;
-    }
-
-    Object? list;
-    if (decoded is Map) {
-      list = decoded['replies'] ?? decoded['options'] ?? decoded['messages'];
-    } else if (decoded is List) {
-      list = decoded;
-    }
-
-    final variants = <ReplySuggestion>[];
-    if (list is List) {
-      for (final entry in list) {
-        if (entry is String) {
-          final text = _tidy(entry);
-          if (text.isNotEmpty) variants.add(ReplySuggestion.reply(text));
-        } else if (entry is Map) {
-          final text = _tidy(
-            entry['text'] as String? ?? entry['reply'] as String? ?? '',
-          );
-          if (text.isNotEmpty) {
-            variants.add(
-              ReplySuggestion(
-                text: text,
-                kind: SuggestionKind.parse(entry['kind'] ?? entry['type']),
-              ),
-            );
-          }
-        }
-      }
-    } else {
-      // The model ignored the format entirely. Rather than failing, treat the
-      // whole answer as one usable reply.
-      final single = _tidy(cleaned);
-      if (single.isNotEmpty) variants.add(ReplySuggestion.reply(single));
-    }
-
-    if (variants.isEmpty) {
-      throw const OpenAiException(
-        OpenAiErrorKind.badResponse,
-        'The model did not return any replies. Try again.',
-      );
-    }
-
-    final unique = _deduplicate(variants);
-    final capped = unique.length > expected
-        ? unique.sublist(0, expected)
-        : unique;
-    return _atMostOneNewTopic(capped);
-  }
-
-  /// Keeps the first topic change and demotes any others.
-  ///
-  /// Nothing is promoted: labelling a plain reply as a topic change to make
-  /// the set look right would be a lie about what the model produced.
-  static List<ReplySuggestion> _atMostOneNewTopic(
-    List<ReplySuggestion> variants,
-  ) {
-    var seen = false;
-    return [
-      for (final variant in variants)
-        if (!variant.isNewTopic)
-          variant
-        else if (!seen)
-          (() {
-            seen = true;
-            return variant;
-          })()
-        else
-          variant.copyWith(kind: SuggestionKind.reply),
-    ];
-  }
-
   static List<ReplySuggestion> _deduplicate(List<ReplySuggestion> variants) {
     final seen = <String>{};
     final out = <ReplySuggestion>[];
@@ -468,12 +399,18 @@ class ReplyGenerator {
   }
 
   /// Strips the quotes and labels models like to wrap a single message in.
-  static String _tidy(String reply) {
+  static String _tidy(String reply, {String name = ''}) {
     var out = reply.trim();
     out = out.replaceFirst(
       RegExp(r'^(?:reply|message|option \d+)\s*:\s*', caseSensitive: false),
       '',
     );
+    // A model continuing a chat sometimes starts with the speaker's name, or
+    // the "(you)" marker the examples use.
+    out = out.replaceFirst(RegExp(r'^\(you\)\s*'), '');
+    if (name.isNotEmpty && out.startsWith('$name:')) {
+      out = out.substring(name.length + 1);
+    }
     if (out.length > 1) {
       const pairs = {'"': '"', "'": "'", '\u201c': '\u201d'};
       final closing = pairs[out[0]];
@@ -482,16 +419,5 @@ class ReplyGenerator {
       }
     }
     return out.trim();
-  }
-
-  static String _stripFence(String raw) {
-    final trimmed = raw.trim();
-    if (!trimmed.startsWith('```')) return trimmed;
-    final newline = trimmed.indexOf('\n');
-    if (newline == -1) return trimmed;
-    var inner = trimmed.substring(newline + 1);
-    final close = inner.lastIndexOf('```');
-    if (close != -1) inner = inner.substring(0, close);
-    return inner.trim();
   }
 }
