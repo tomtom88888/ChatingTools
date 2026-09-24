@@ -550,7 +550,7 @@ class _ReadSummary extends StatelessWidget {
         const SizedBox(height: 14),
         Container(
           padding: const EdgeInsets.only(top: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(top: BorderSide(color: Paper.dividerFirm)),
           ),
           child: Column(
@@ -665,7 +665,7 @@ class _NameChoice extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: selected ? Paper.ink : Paper.card,
+        color: selected ? Paper.accent : Paper.card,
         borderRadius: Corner.all(Corner.choice),
         border: selected ? null : Border.all(color: Paper.border, width: 1.5),
       ),
@@ -679,7 +679,9 @@ class _NameChoice extends StatelessWidget {
               fontSize: 11,
               height: 1.3,
               letterSpacing: 1.1,
-              color: selected ? const Color(0x99FAF7F0) : Paper.muted,
+              color: selected
+                  ? Paper.onAccent.withValues(alpha: 0.75)
+                  : Paper.muted,
             ),
           ),
           const SizedBox(height: 3),
@@ -689,7 +691,7 @@ class _NameChoice extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: Type.strong(
               size: 17,
-              color: selected ? Paper.onInk : Paper.ink,
+              color: selected ? Paper.onAccent : Paper.ink,
             ),
           ),
         ],
@@ -726,7 +728,11 @@ class _BuildingCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Building your memory',
-                  style: Type.strong(size: 15, color: Paper.onInk, height: 1.3),
+                  style: Type.strong(
+                    size: 15,
+                    color: Paper.onHero,
+                    height: 1.3,
+                  ),
                 ),
               ),
               Text(
@@ -741,7 +747,7 @@ class _BuildingCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: progress?.fraction,
               minHeight: 6,
-              backgroundColor: const Color(0x26FAF7F0),
+              backgroundColor: Paper.onHero.withValues(alpha: 0.15),
               color: Paper.amber,
             ),
           ),
@@ -750,7 +756,7 @@ class _BuildingCard extends StatelessWidget {
             progress?.stage ?? 'Starting',
             style: Type.prose(
               size: 13,
-              color: const Color(0xA6FAF7F0),
+              color: Paper.onHero.withValues(alpha: 0.65),
               height: 1.45,
             ),
           ),
@@ -761,12 +767,15 @@ class _BuildingCard extends StatelessWidget {
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 borderRadius: Corner.all(Corner.small),
-                border: Border.all(color: const Color(0x40FAF7F0), width: 1.5),
+                border: Border.all(
+                  color: Paper.onHero.withValues(alpha: 0.25),
+                  width: 1.5,
+                ),
               ),
               child: Center(
                 child: Text(
                   'Cancel',
-                  style: Type.strong(size: 14, color: Paper.onInk),
+                  style: Type.strong(size: 14, color: Paper.onHero),
                 ),
               ),
             ),
@@ -777,7 +786,7 @@ class _BuildingCard extends StatelessWidget {
             'is replaced until the build finishes.',
             style: Type.prose(
               size: 12,
-              color: const Color(0x80FAF7F0),
+              color: Paper.onHero.withValues(alpha: 0.50),
               height: 1.45,
             ),
           ),

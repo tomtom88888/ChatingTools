@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../models/reply_suggestion.dart';
 import '../../services/reply_generator.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/paper_ui.dart';
 
 /// One suggested message: what it is for, its bubbles, and what can be done
 /// with it — copy, tweak, or star it into the memory.
@@ -61,144 +60,200 @@ class ReplyCard extends StatelessWidget {
         : 'Copy ${bubblesCopied + 1} of ${bubbles.length}';
     final busy = refining != null;
 
+    final maxBubble = MediaQuery.sizeOf(context).width * 0.8;
+
     return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: PaperCard(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // What this option is for. The one that changes the subject is
-            // marked in the accent colour because it is the odd one out, and
-            // picking it by accident would send the conversation sideways.
-            Row(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // What this option is for. The one that changes the subject is
+          // marked in the accent colour because it is the odd one out, and
+          // picking it by accident would send the conversation sideways.
+          Padding(
+            padding: const EdgeInsets.only(right: 4, bottom: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (changesSubject)
-                  Container(
-                    width: 5,
-                    height: 5,
-                    margin: const EdgeInsets.only(right: 7),
-                    decoration: const BoxDecoration(
+                  Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: Icon(
+                      Icons.alt_route_rounded,
+                      size: 14,
                       color: Paper.accent,
-                      shape: BoxShape.circle,
                     ),
                   ),
-                Expanded(
-                  child: MonoLabel(
-                    split
-                        ? '${suggestion.kind.label} · ${bubbles.length} bubbles'
-                        : suggestion.kind.label,
-                    size: 10.5,
-                    spacing: 0.14,
+                Text(
+                  split
+                      ? '${suggestion.kind.label} · ${bubbles.length} bubbles'
+                      : suggestion.kind.label,
+                  style: Type.strong(
+                    size: 12,
                     color: changesSubject ? Paper.accent : Paper.muted,
                   ),
                 ),
-                _StarButton(saved: saved, saving: saving, onTap: onSave),
               ],
             ),
-            const SizedBox(height: 9),
-            AnimatedOpacity(
-              opacity: busy ? 0.4 : 1,
-              duration: const Duration(milliseconds: 150),
-              child: split
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (var i = 0; i < bubbles.length; i++)
-                          _Bubble(text: bubbles[i], copied: i < bubblesCopied),
-                      ],
-                    )
-                  : Text(
-                      suggestion.text,
-                      style: Type.prose(
-                        size: 15.5,
-                        color: Paper.ink,
-                        height: 1.5,
-                      ),
-                    ),
-            ),
-            const SizedBox(height: 11),
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: [
-                for (final refinement in Refinement.values)
-                  _Chip(
-                    label: refinement.label,
-                    busy: refining == refinement,
-                    onTap: busy ? null : () => onRefine(refinement),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 11),
-            Container(
-              padding: const EdgeInsets.only(top: 10),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Paper.divider)),
-              ),
-              child: Row(
+          ),
+          // The suggestion as it would look once sent: your green bubbles,
+          // on the right.
+          AnimatedOpacity(
+            opacity: busy ? 0.45 : 1,
+            duration: const Duration(milliseconds: 150),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxBubble),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Expanded(
-                    child: Text(
-                      provenance,
-                      style: Type.numeric(
-                        size: 11.5,
-                        color: Paper.muted,
-                        weight: FontWeight.w500,
-                      ),
+                  for (var i = 0; i < bubbles.length; i++)
+                    _Bubble(
+                      text: split ? bubbles[i] : suggestion.text,
+                      copied: i < bubblesCopied,
+                      first: i == 0,
+                      meta: i == bubbles.length - 1 ? provenance : null,
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: busy ? null : onCopy,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: allCopied ? Paper.green : Paper.ink,
-                        borderRadius: Corner.all(Corner.pill),
-                      ),
-                      child: Text(
-                        copyLabel,
-                        style: Type.strong(size: 13, color: Paper.onInk),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // One line of quick tweaks, scrolling if the screen is narrow.
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final refinement in Refinement.values) ...[
+                        if (refinement != Refinement.values.first)
+                          const SizedBox(width: 6),
+                        _Chip(
+                          label: refinement.label,
+                          busy: refining == refinement,
+                          onTap: busy ? null : () => onRefine(refinement),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _StarButton(saved: saved, saving: saving, onTap: onSave),
+              const SizedBox(width: 8),
+              Material(
+                color: allCopied ? Paper.green : Paper.accent,
+                borderRadius: Corner.all(Corner.pill),
+                child: InkWell(
+                  onTap: busy ? null : onCopy,
+                  borderRadius: Corner.all(Corner.pill),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 9, 15, 9),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          allCopied
+                              ? Icons.done_all_rounded
+                              : Icons.content_copy_rounded,
+                          size: 15,
+                          color: _onAccent,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          copyLabel,
+                          style: Type.strong(size: 13, color: _onAccent),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
+
+  static Color get _onAccent => Paper.isDark ? Paper.onInk : Colors.white;
 }
 
-/// One bubble of a message you would send as several.
+/// One outgoing bubble. The first of a run has the tail; a copied bubble
+/// shows WhatsApp's double tick, and the last carries the provenance where a
+/// sent message shows its time.
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.text, required this.copied});
+  const _Bubble({
+    required this.text,
+    required this.copied,
+    required this.first,
+    this.meta,
+  });
 
   final String text;
   final bool copied;
+  final bool first;
+  final String? meta;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
+    padding: const EdgeInsets.only(bottom: 3),
     child: Container(
-      padding: const EdgeInsets.fromLTRB(11, 7, 11, 7),
+      padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
       decoration: BoxDecoration(
-        color: copied ? Paper.greenPanel : Paper.panel,
-        borderRadius: const BorderRadius.only(
+        color: Paper.bubbleMine,
+        borderRadius: BorderRadius.only(
           topLeft: Corner.bubble,
-          topRight: Corner.bubble,
+          topRight: first ? Corner.tail : Corner.bubble,
           bottomLeft: Corner.bubble,
-          bottomRight: Radius.circular(4),
+          bottomRight: Corner.bubble,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Paper.shadowSoft,
+            blurRadius: 1,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
-      child: Text(
-        text,
-        style: Type.prose(size: 15, color: Paper.ink, height: 1.45),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: 1,
+            child: Text(
+              text,
+              style: Type.prose(size: 15.5, color: Paper.ink, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (meta != null)
+                Flexible(
+                  child: Text(
+                    meta!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.numeric(
+                      size: 10.5,
+                      color: Paper.tertiary,
+                      weight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              if (copied) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.done_all_rounded, size: 15, color: Paper.accent),
+              ],
+            ],
+          ),
+        ],
       ),
     ),
   );
@@ -215,11 +270,10 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: Paper.bg,
+        color: Paper.accentSoft,
         borderRadius: Corner.all(Corner.pill),
-        border: Border.all(color: Paper.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -236,11 +290,9 @@ class _Chip extends StatelessWidget {
             label,
             style: Type.prose(
               size: 12,
-              color: onTap == null && !busy
-                  ? Paper.placeholder
-                  : Paper.secondary,
+              color: onTap == null && !busy ? Paper.placeholder : Paper.accent,
               height: 1.2,
-              weight: FontWeight.w500,
+              weight: FontWeight.w600,
             ),
           ),
         ],

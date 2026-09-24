@@ -33,14 +33,8 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
       children: [
         Row(
           children: [
-            GestureDetector(
-              onTap: () => Navigator.of(context).pop(),
-              child: const Text(
-                '←',
-                style: TextStyle(fontSize: 19, color: Paper.secondary),
-              ),
-            ),
-            const SizedBox(width: 14),
+            BackArrow(onTap: () => Navigator.of(context).pop()),
+            const SizedBox(width: 10),
             const MonoLabel('Chat data'),
           ],
         ),
@@ -187,7 +181,7 @@ class _ChatPills extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
               decoration: BoxDecoration(
-                color: chat.id == selected ? Paper.ink : Paper.card,
+                color: chat.id == selected ? Paper.accent : Paper.card,
                 borderRadius: Corner.all(Corner.pill),
                 border: chat.id == selected
                     ? null
@@ -197,7 +191,7 @@ class _ChatPills extends StatelessWidget {
                 chat.theirName.isEmpty ? 'Unnamed' : chat.theirName,
                 style: Type.strong(
                   size: 14,
-                  color: chat.id == selected ? Paper.onInk : Paper.ink,
+                  color: chat.id == selected ? Paper.onAccent : Paper.ink,
                 ),
               ),
             ),
@@ -215,7 +209,7 @@ class _Hero extends StatelessWidget {
   final ChatStats stats;
   final String them;
 
-  static const Color _faint = Color(0x9EFAF7F0);
+  static const Color _faint = Paper.onHeroFaint;
 
   @override
   Widget build(BuildContext context) {
@@ -243,12 +237,12 @@ class _Hero extends StatelessWidget {
           if (first != null)
             MonoLabel(
               'Since ${dayMonthYear(first)}',
-              color: const Color(0x80FAF7F0),
+              color: Paper.onHero.withValues(alpha: 0.50),
             ),
           const SizedBox(height: 10),
           Text(
             grouped(stats.totalMessages),
-            style: Type.display(56, color: Paper.onInk),
+            style: Type.display(56, color: Paper.onHero),
           ),
           Text(
             'messages between you',
@@ -279,7 +273,7 @@ class _ShareBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const faint = Color(0x9EFAF7F0);
+    const faint = Paper.onHeroFaint;
     final mine = (share * 1000).round().clamp(1, 999);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -294,13 +288,15 @@ class _ShareBar extends StatelessWidget {
               children: [
                 Expanded(
                   flex: mine,
-                  child: const ColoredBox(color: Paper.amber),
+                  child: ColoredBox(color: Paper.amber),
                 ),
                 // The 2px gap between the two fills.
                 const SizedBox(width: 2),
                 Expanded(
                   flex: 1000 - mine,
-                  child: const ColoredBox(color: Color(0x40FAF7F0)),
+                  child: ColoredBox(
+                    color: Paper.onHero.withValues(alpha: 0.25),
+                  ),
                 ),
               ],
             ),
@@ -312,7 +308,7 @@ class _ShareBar extends StatelessWidget {
             Expanded(
               child: Text(
                 'You · ${percent(share)}',
-                style: Type.prose(size: 12.5, color: Paper.onInk, height: 1.3),
+                style: Type.prose(size: 12.5, color: Paper.onHero, height: 1.3),
               ),
             ),
             Text(
@@ -647,9 +643,7 @@ class _DuelRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        border: last
-            ? null
-            : const Border(bottom: BorderSide(color: Paper.divider)),
+        border: last ? null : Border(bottom: BorderSide(color: Paper.divider)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

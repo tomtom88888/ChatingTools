@@ -85,10 +85,7 @@ class PaperScreen extends StatelessWidget {
       );
     }
 
-    return Scaffold(
-      backgroundColor: Paper.bg,
-      body: body,
-    );
+    return Scaffold(backgroundColor: Paper.bg, body: body);
   }
 }
 
@@ -100,52 +97,51 @@ class PaperScreen extends StatelessWidget {
 /// reads as though the app learned the wrong person. The isolate tells the
 /// bidirectional algorithm to resolve the name on its own and leave the
 /// sentence alone. Latin names are unaffected.
-String bidiIsolate(String name) =>
-    name.isEmpty ? name : '\u2068$name\u2069';
+String bidiIsolate(String name) => name.isEmpty ? name : '\u2068$name\u2069';
 
-/// The small uppercase mono label that titles a block.
+/// The small bold label that titles a block, like a settings group header.
 class MonoLabel extends StatelessWidget {
   const MonoLabel(
     this.text, {
-    this.color = Paper.muted,
+    this.color,
     this.size = 11,
     this.spacing = 0.16,
     super.key,
   });
 
   final String text;
-  final Color color;
+  final Color? color;
   final double size;
   final double spacing;
 
   @override
   Widget build(BuildContext context) => Text(
-    text.toUpperCase(),
+    text,
     style: Type.label(size: size, color: color, spacing: spacing),
   );
 }
 
-/// A serif headline, optionally with one italic accent clause.
+/// A heavy headline, optionally with one clause in the accent colour.
 class SerifTitle extends StatelessWidget {
   const SerifTitle(
     this.text, {
     this.accent,
     this.trailing,
     this.size = 32,
-    this.color = Paper.ink,
+    this.color,
     super.key,
   });
 
   final String text;
 
-  /// Rendered italic in the accent colour, immediately after [text].
+  /// Rendered in the accent colour, immediately after [text].
   final String? accent;
 
   /// Plain text after the accent clause.
   final String? trailing;
 
   final double size;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -165,7 +161,8 @@ class SerifTitle extends StatelessWidget {
   }
 }
 
-/// White, lifted, rounded — the design's default container for content.
+/// A raised, rounded card — the default container for content. Lifted by a
+/// soft shadow in light mode and outlined in dark mode.
 class PaperCard extends StatelessWidget {
   const PaperCard({
     required this.child,
@@ -184,7 +181,8 @@ class PaperCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: Paper.card,
       borderRadius: Corner.all(radius),
-      boxShadow: Paper.lift,
+      boxShadow: Paper.isDark ? null : Paper.lift,
+      border: Paper.isDark ? Border.all(color: Paper.divider) : null,
     ),
     child: child,
   );
@@ -196,24 +194,29 @@ class PaperPanel extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.fromLTRB(15, 13, 15, 13),
     this.radius = Corner.field,
-    this.color = Paper.panel,
+    this.color,
     super.key,
   });
 
   final Widget child;
   final EdgeInsets padding;
   final Radius radius;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => Container(
     padding: padding,
-    decoration: BoxDecoration(color: color, borderRadius: Corner.all(radius)),
+    decoration: BoxDecoration(
+      color: color ?? Paper.panel,
+      borderRadius: Corner.all(radius),
+    ),
     child: child,
   );
 }
 
-/// The dark card: used for the one thing on a screen that matters most.
+/// The hero card: a teal gradient with a faint speech bubble in the corner,
+/// for the one thing on a screen that matters most. Text on it uses
+/// [Paper.onHero] and [Paper.onHeroFaint], which stay white in both themes.
 class InkCard extends StatelessWidget {
   const InkCard({
     required this.child,
@@ -228,21 +231,34 @@ class InkCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: padding,
+    clipBehavior: Clip.antiAlias,
     decoration: BoxDecoration(
-      color: Paper.ink,
+      gradient: Paper.heroGradient,
       borderRadius: Corner.all(radius),
     ),
-    child: child,
+    child: Stack(
+      children: [
+        const Positioned(
+          right: 14,
+          top: 14,
+          child: Icon(
+            Icons.chat_bubble_rounded,
+            size: 84,
+            color: Color(0x1FFFFFFF),
+          ),
+        ),
+        Padding(padding: padding, child: child),
+      ],
+    ),
   );
 }
 
 /// How prominent an action is.
 enum ActionTone {
-  /// Ink. The step forward.
+  /// Deep teal. The step forward.
   ink,
 
-  /// Terracotta. The one action the screen exists for.
+  /// Teal. The one action the screen exists for.
   accent,
 
   /// Outlined on white. An alternative.
@@ -267,6 +283,9 @@ class PaperAction extends StatelessWidget {
     super.key,
   });
 
+  /// The pill shape a centred button takes, like a messaging app's send bar.
+  static const Radius pill = Radius.circular(28);
+
   final String title;
   final String? subtitle;
   final VoidCallback? onTap;
@@ -285,22 +304,22 @@ class PaperAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final effective = onTap == null || busy ? ActionTone.disabled : tone;
     final (bg, fg, sub, border) = switch (effective) {
-      ActionTone.ink => (Paper.ink, Paper.onInk, const Color(0xA6FAF7F0), null),
+      ActionTone.ink => (Paper.heroEnd, Paper.onHero, Paper.onHeroFaint, null),
       ActionTone.accent => (
         Paper.accent,
-        Colors.white,
-        const Color(0xCCFFFFFF),
+        Paper.isDark ? Paper.onInk : Colors.white,
+        (Paper.isDark ? Paper.onInk : Colors.white).withValues(alpha: 0.8),
         null,
       ),
       ActionTone.outline => (
         Paper.card,
         Paper.ink,
         Paper.tertiary,
-        Paper.borderSoft,
+        Paper.border,
       ),
       ActionTone.disabled => (
-        tone == ActionTone.ink ? Paper.ink : Paper.panel,
-        tone == ActionTone.ink ? Paper.onInk : Paper.ink,
+        tone == ActionTone.ink ? Paper.heroEnd : Paper.panel,
+        tone == ActionTone.ink ? Paper.onHero : Paper.ink,
         Paper.secondary,
         null,
       ),
@@ -340,26 +359,27 @@ class PaperAction extends StatelessWidget {
                 )
               else
                 trailing ??
-                    Text('→', style: TextStyle(fontSize: 19, color: fg)),
+                    Icon(Icons.arrow_forward_rounded, size: 20, color: fg),
             ],
           );
 
+    final shape = centred ? pill : radius;
     return Opacity(
       opacity: effective == ActionTone.disabled && tone != ActionTone.ink
           ? 0.55
           : (busy ? 0.75 : 1),
       child: Material(
         color: bg,
-        borderRadius: Corner.all(radius),
+        borderRadius: Corner.all(shape),
         child: InkWell(
           onTap: busy ? null : onTap,
-          borderRadius: Corner.all(radius),
+          borderRadius: Corner.all(shape),
           child: Container(
             padding: centred
-                ? const EdgeInsets.all(18)
-                : const EdgeInsets.fromLTRB(19, 18, 19, 18),
+                ? const EdgeInsets.all(17)
+                : const EdgeInsets.fromLTRB(20, 17, 18, 17),
             decoration: BoxDecoration(
-              borderRadius: Corner.all(radius),
+              borderRadius: Corner.all(shape),
               border: border == null
                   ? null
                   : Border.all(color: border, width: 1.5),
@@ -374,16 +394,16 @@ class PaperAction extends StatelessWidget {
 
 /// A line of quiet text, centred under an action.
 class Footnote extends StatelessWidget {
-  const Footnote(this.text, {this.color = Paper.muted, super.key});
+  const Footnote(this.text, {this.color, super.key});
 
   final String text;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => Text(
     text,
     textAlign: TextAlign.center,
-    style: Type.prose(size: 12.5, color: color, height: 1.45),
+    style: Type.prose(size: 12.5, color: color ?? Paper.muted, height: 1.45),
   );
 }
 
@@ -412,7 +432,11 @@ class Notice extends StatelessWidget {
     final (bg, fg, titleColor) = switch (tone) {
       NoticeTone.neutral => (Paper.panel, Paper.body, Paper.ink),
       NoticeTone.caution => (Paper.warnPanel, Paper.warnText, Paper.accent),
-      NoticeTone.failure => (Paper.errorPanel, Paper.errorText, Paper.errorText),
+      NoticeTone.failure => (
+        Paper.errorPanel,
+        Paper.errorText,
+        Paper.errorText,
+      ),
       NoticeTone.success => (Paper.greenPanel, Paper.greenText, Paper.green),
     };
 
@@ -425,10 +449,7 @@ class Notice extends StatelessWidget {
             Text(title!, style: Type.strong(size: 13.5, color: titleColor)),
             const SizedBox(height: 5),
           ],
-          Text(
-            message,
-            style: Type.prose(size: 13.5, color: fg, height: 1.45),
-          ),
+          Text(message, style: Type.prose(size: 13.5, color: fg, height: 1.45)),
           if (actionLabel != null && onAction != null) ...[
             const SizedBox(height: 8),
             GestureDetector(
@@ -478,9 +499,7 @@ class StackedRow extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(vertical: 11),
     decoration: BoxDecoration(
-      border: last
-          ? null
-          : const Border(bottom: BorderSide(color: Paper.divider)),
+      border: last ? null : Border(bottom: BorderSide(color: Paper.divider)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,9 +546,17 @@ class NamePairValue extends StatelessWidget {
         children: [
           Text(me, style: style, textDirection: TextDirection.ltr),
           Text(
-            ' (me) \u2192 ',
+            ' (me) ',
             style: style.copyWith(color: Paper.tertiary),
             textDirection: TextDirection.ltr,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 15,
+              color: Paper.tertiary,
+            ),
           ),
           Text(them, style: style, textDirection: TextDirection.ltr),
         ],
@@ -594,15 +621,9 @@ class StepRail extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     children: [
       if (onBack != null)
-        GestureDetector(
-          onTap: onBack,
-          child: const Padding(
-            padding: EdgeInsets.only(right: 14),
-            child: Text(
-              '←',
-              style: TextStyle(fontSize: 19, color: Paper.secondary),
-            ),
-          ),
+        Padding(
+          padding: const EdgeInsets.only(right: 10),
+          child: BackArrow(onTap: onBack!),
         ),
       Expanded(
         child: Row(
@@ -647,17 +668,14 @@ class NumberedSteps extends StatelessWidget {
             decoration: BoxDecoration(
               border: i == steps.length - 1
                   ? null
-                  : const Border(bottom: BorderSide(color: Paper.divider)),
+                  : Border(bottom: BorderSide(color: Paper.divider)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 26,
-                  child: Text(
-                    (i + 1).toString().padLeft(2, '0'),
-                    style: Type.numeric(size: 12, color: Paper.accent),
-                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: StepNumber(i + 1),
                 ),
                 Expanded(child: emphasised(steps[i], size: 14.5)),
               ],
@@ -673,10 +691,14 @@ class NumberedSteps extends StatelessWidget {
 Widget emphasised(
   String source, {
   double size = 14,
-  Color color = Paper.ink,
+  Color? color,
   double height = 1.45,
 }) {
-  final base = Type.prose(size: size, color: color, height: height);
+  final base = Type.prose(
+    size: size,
+    color: color ?? Paper.ink,
+    height: height,
+  );
   final spans = <TextSpan>[];
   var bold = false;
   for (final part in source.split('*')) {
@@ -684,11 +706,48 @@ Widget emphasised(
       spans.add(
         TextSpan(
           text: part,
-          style: bold ? base.copyWith(fontWeight: FontWeight.w600) : base,
+          style: bold ? base.copyWith(fontWeight: FontWeight.w800) : base,
         ),
       );
     }
     bold = !bold;
   }
   return Text.rich(TextSpan(style: base, children: spans));
+}
+
+/// A number in a small teal circle, for numbered steps and lists.
+class StepNumber extends StatelessWidget {
+  const StepNumber(this.number, {super.key});
+
+  final int number;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 24,
+    height: 24,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(color: Paper.accentSoft, shape: BoxShape.circle),
+    child: Text('$number', style: Type.numeric(size: 12, color: Paper.accent)),
+  );
+}
+
+/// The back control at the top of a screen.
+class BackArrow extends StatelessWidget {
+  const BackArrow({required this.onTap, super.key});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'Back',
+    child: InkResponse(
+      onTap: onTap,
+      radius: 22,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Icon(Icons.arrow_back_rounded, size: 24, color: Paper.secondary),
+      ),
+    ),
+  );
 }

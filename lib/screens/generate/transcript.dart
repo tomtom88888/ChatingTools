@@ -60,8 +60,12 @@ class Transcript extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 9),
+        // The conversation as it would look in the chat itself: bubbles on
+        // the chat's wallpaper.
         PaperPanel(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          color: Paper.chatBg,
+          radius: Corner.card,
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -113,15 +117,22 @@ class _TranscriptLine extends StatelessWidget {
         constraints: BoxConstraints(
           maxWidth: MediaQuery.sizeOf(context).width * 0.62,
         ),
-        padding: const EdgeInsets.fromLTRB(11, 8, 11, 8),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         decoration: BoxDecoration(
-          color: mine ? Paper.ink : Paper.card,
+          color: mine ? Paper.bubbleMine : Paper.bubbleTheirs,
           borderRadius: BorderRadius.only(
-            topLeft: Corner.bubble,
-            topRight: Corner.bubble,
-            bottomLeft: mine ? Corner.bubble : const Radius.circular(4),
-            bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
+            topLeft: mine ? Corner.bubble : Corner.tail,
+            topRight: mine ? Corner.tail : Corner.bubble,
+            bottomLeft: Corner.bubble,
+            bottomRight: Corner.bubble,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Paper.shadowSoft,
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,12 +145,11 @@ class _TranscriptLine extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 5),
                 padding: const EdgeInsets.fromLTRB(7, 3, 7, 3),
                 decoration: BoxDecoration(
-                  color: mine ? const Color(0x1FFAF7F0) : Paper.panel,
+                  color: mine
+                      ? Paper.accent.withValues(alpha: 0.12)
+                      : Paper.panel,
                   border: Border(
-                    left: BorderSide(
-                      color: mine ? Paper.amber : Paper.accent,
-                      width: 2.5,
-                    ),
+                    left: BorderSide(color: Paper.accent, width: 2.5),
                   ),
                 ),
                 child: Text(
@@ -148,18 +158,14 @@ class _TranscriptLine extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Type.prose(
                     size: 12,
-                    color: mine ? const Color(0xA6FAF7F0) : Paper.tertiary,
+                    color: Paper.tertiary,
                     height: 1.35,
                   ),
                 ),
               ),
             Text(
               message.text,
-              style: Type.prose(
-                size: 13.5,
-                color: mine ? Paper.onInk : Paper.ink,
-                height: 1.4,
-              ),
+              style: Type.prose(size: 13.5, color: Paper.ink, height: 1.4),
             ),
           ],
         ),

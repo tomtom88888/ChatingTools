@@ -13,6 +13,7 @@ import 'package:replylikeme/screens/settings_screen.dart';
 import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/services/whatsapp_parser.dart';
 import 'package:replylikeme/state/providers.dart';
+import 'package:replylikeme/theme/tokens.dart';
 import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -119,7 +120,7 @@ void main() {
   testWidgets('with a key but nothing learned, home says so', (tester) async {
     await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij');
 
-    expect(find.text('REPLYLIKEME'), findsOneWidget);
+    expect(find.text('ReplyLikeMe'), findsOneWidget);
     expect(find.text("It doesn't know you yet."), findsOneWidget);
     expect(find.text('Teach it your voice'), findsOneWidget);
 
@@ -187,7 +188,7 @@ void main() {
     expect(find.text('Fine-tuned'), findsOneWidget);
 
     // Spending is tallied on the phone; nothing has been spent yet.
-    await scrollTo(tester, find.text('SPENDING'));
+    await scrollTo(tester, find.text('Spending'));
     expect(find.text('nothing yet'), findsOneWidget);
     expect(find.text('Chat input price'), findsOneWidget);
 
@@ -266,7 +267,7 @@ void main() {
     );
     await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij', store: store);
 
-    expect(find.text('CHATS IT WRITES FROM'), findsOneWidget);
+    expect(find.text('Chats it writes from'), findsOneWidget);
     expect(find.byType(Checkbox), findsNWidgets(2));
     expect(find.text('Sam & Mum'), findsWidgets);
     expect(find.text('2 of 2 on'), findsOneWidget);
@@ -339,7 +340,7 @@ void main() {
     expect(find.text('Typical reply time'), findsOneWidget);
     expect(find.text('3 min'), findsOneWidget, reason: 'median of 4 and 2');
     expect(find.text('Through the day'), findsOneWidget);
-    expect(find.text('WHAT STANDS OUT'), findsOneWidget);
+    expect(find.text('What stands out'), findsOneWidget);
     expect(find.text('09:00–10:00 · 2 messages — the busiest'), findsOneWidget);
 
     // Tapping a bar reads out that bar.
@@ -357,5 +358,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No numbers yet'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('follows the phone into dark mode without losing its place', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.platformDispatcher.clearPlatformBrightnessTestValue();
+      Paper.use(Brightness.light);
+    });
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: trainedStore(),
+    );
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    Color background() =>
+        tester.widget<Scaffold>(find.byType(Scaffold).last).backgroundColor!;
+    expect(background(), Palette.light.bg);
+
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpAndSettle();
+
+    // Still on Settings, now drawn from the dark palette.
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(Paper.isDark, isTrue);
+    expect(background(), Palette.dark.bg);
+
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await tester.pumpAndSettle();
+    expect(background(), Palette.light.bg);
   });
 }

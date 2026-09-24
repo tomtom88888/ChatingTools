@@ -41,26 +41,18 @@ flutter:
   uses-material-design: true
 
   fonts:
-    # The three families the design is set in. Bundled rather than fetched at
-    # runtime so the app renders correctly offline.
-    - family: Instrument Serif
+    # Nunito, the app's one family, bundled rather than fetched at runtime so
+    # the app renders correctly offline. Latin subset, from Google Fonts under
+    # the SIL Open Font License (assets/fonts/Nunito-OFL.txt).
+    - family: Nunito
       fonts:
-        - asset: assets/fonts/InstrumentSerif-400.ttf
+        - asset: assets/fonts/Nunito-Regular.ttf
           weight: 400
-        - asset: assets/fonts/InstrumentSerif-400Italic.ttf
-          weight: 400
-          style: italic
-    - family: Public Sans
-      fonts:
-        - asset: assets/fonts/PublicSans-400.ttf
-          weight: 400
-        - asset: assets/fonts/PublicSans-500.ttf
+        - asset: assets/fonts/Nunito-Medium.ttf
           weight: 500
-        - asset: assets/fonts/PublicSans-600.ttf
+        - asset: assets/fonts/Nunito-SemiBold.ttf
           weight: 600
-    - family: JetBrains Mono
-      fonts:
-        - asset: assets/fonts/JetBrainsMono-400.ttf
-          weight: 400
-        - asset: assets/fonts/JetBrainsMono-500.ttf
-          weight: 500
+        - asset: assets/fonts/Nunito-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Nunito-ExtraBold.ttf
+          weight: 800

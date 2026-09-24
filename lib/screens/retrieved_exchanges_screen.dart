@@ -35,15 +35,9 @@ class RetrievedExchangesScreen extends StatelessWidget {
       children: [
         Row(
           children: [
-            GestureDetector(
-              onTap: () => Navigator.of(context).pop(),
-              child: const Padding(
-                padding: EdgeInsets.only(right: 14),
-                child: Text(
-                  '←',
-                  style: TextStyle(fontSize: 19, color: Paper.secondary),
-                ),
-              ),
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: BackArrow(onTap: () => Navigator.of(context).pop()),
             ),
             Expanded(
               child: Text(
@@ -118,7 +112,7 @@ class _Exchange extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!first)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(bottom: 18),
               child: Divider(height: 1, thickness: 1, color: Paper.divider),
             ),
@@ -155,8 +149,18 @@ class _Exchange extends StatelessWidget {
   }
 
   static const List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   static String _when(DateTime at) =>
@@ -182,10 +186,13 @@ class _Bubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = isTheReply
-        ? Paper.accent
-        : (mine ? Paper.ink : Paper.card);
-    final foreground = mine || isTheReply ? Colors.white : Paper.ink;
+    // Laid out like the chat itself: your bubbles green on the right, theirs
+    // on the left. The reply that was actually sent is outlined in the
+    // accent, because it is the part worth reading.
+    final background = mine || isTheReply
+        ? Paper.bubbleMine
+        : Paper.bubbleTheirs;
+    final foreground = Paper.ink;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -203,14 +210,21 @@ class _Bubble extends StatelessWidget {
               decoration: BoxDecoration(
                 color: background,
                 borderRadius: BorderRadius.only(
-                  topLeft: Corner.bubble,
-                  topRight: Corner.bubble,
-                  bottomLeft: mine ? Corner.bubble : const Radius.circular(4),
-                  bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
+                  topLeft: mine ? Corner.bubble : Corner.tail,
+                  topRight: mine ? Corner.tail : Corner.bubble,
+                  bottomLeft: Corner.bubble,
+                  bottomRight: Corner.bubble,
                 ),
-                border: mine
-                    ? null
-                    : Border.all(color: Paper.border, width: 1),
+                border: isTheReply
+                    ? Border.all(color: Paper.accent, width: 1.5)
+                    : null,
+                boxShadow: [
+                  BoxShadow(
+                    color: Paper.shadowSoft,
+                    blurRadius: 1,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
               child: Text(
                 text,

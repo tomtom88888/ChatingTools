@@ -224,11 +224,11 @@ class _HomeFrame extends StatelessWidget {
             child: Container(
               width: 36,
               height: 36,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: Paper.panel,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.settings_outlined,
                 size: 18,
                 color: Paper.secondary,
@@ -262,7 +262,7 @@ class _KnowsYou extends StatelessWidget {
                 : 'It knows how you write to',
             style: Type.prose(
               size: 15,
-              color: const Color(0x9EFAF7F0),
+              color: Paper.onHero.withValues(alpha: 0.62),
               height: 1.3,
             ),
           ),
@@ -271,7 +271,7 @@ class _KnowsYou extends StatelessWidget {
             enabled.isEmpty
                 ? 'no one, for now'
                 : nameList([for (final c in enabled) c.theirName]),
-            style: Type.display(40, color: Paper.onInk),
+            style: Type.display(40, color: Paper.onHero),
           ),
           const SizedBox(height: 16),
           Row(
@@ -286,7 +286,10 @@ class _KnowsYou extends StatelessWidget {
               Flexible(
                 child: Text(
                   'of your replies learned',
-                  style: Type.prose(size: 14, color: const Color(0x9EFAF7F0)),
+                  style: Type.prose(
+                    size: 14,
+                    color: Paper.onHero.withValues(alpha: 0.62),
+                  ),
                 ),
               ),
             ],
@@ -378,16 +381,16 @@ class _ChatRow extends StatelessWidget {
         decoration: BoxDecoration(
           border: last
               ? null
-              : const Border(bottom: BorderSide(color: Paper.divider)),
+              : Border(bottom: BorderSide(color: Paper.divider)),
         ),
         child: Row(
           children: [
             Checkbox(
               value: chat.enabled,
               onChanged: (on) => onToggle(on ?? false),
-              activeColor: Paper.ink,
-              checkColor: Paper.onInk,
-              side: const BorderSide(color: Paper.placeholder, width: 1.5),
+              activeColor: Paper.accent,
+              checkColor: Paper.isDark ? Paper.onInk : Colors.white,
+              side: BorderSide(color: Paper.placeholder, width: 1.5),
               shape: RoundedRectangleBorder(
                 borderRadius: Corner.all(const Radius.circular(5)),
               ),
@@ -409,7 +412,8 @@ class _ChatRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${grouped(chat.exchangeCount)} replies$saved · '
+                    '${grouped(chat.exchangeCount)} '
+                    '${chat.exchangeCount == 1 ? "reply" : "replies"}$saved · '
                     '${dayMonth(chat.builtAt)}',
                     style: Type.numeric(
                       size: 11.5,
@@ -423,11 +427,7 @@ class _ChatRow extends StatelessWidget {
             PopupMenuButton<String>(
               tooltip: 'More',
               color: Paper.bg,
-              icon: const Icon(
-                Icons.more_horiz,
-                size: 20,
-                color: Paper.tertiary,
-              ),
+              icon: Icon(Icons.more_horiz, size: 20, color: Paper.tertiary),
               itemBuilder: (context) => [
                 PopupMenuItem(
                   value: 'delete',
@@ -502,7 +502,7 @@ class _FineTuneMismatch extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(right: 11),
           child: Text(
             '!',
@@ -661,7 +661,7 @@ class _Actions extends StatelessWidget {
       tone: ActionTone.accent,
       onTap: onGenerate,
       trailing: locked
-          ? const Icon(Icons.lock_outline, size: 16, color: Paper.tertiary)
+          ? Icon(Icons.lock_outline, size: 16, color: Paper.tertiary)
           : null,
     );
     final train = PaperAction(

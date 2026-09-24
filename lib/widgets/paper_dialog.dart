@@ -78,15 +78,15 @@ InputDecoration paperFieldDecoration(String hint, {bool monoHint = true}) =>
       contentPadding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
       border: OutlineInputBorder(
         borderRadius: Corner.all(Corner.small),
-        borderSide: const BorderSide(color: Paper.border, width: 1.5),
+        borderSide: BorderSide(color: Paper.border, width: 1.5),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: Corner.all(Corner.small),
-        borderSide: const BorderSide(color: Paper.border, width: 1.5),
+        borderSide: BorderSide(color: Paper.border, width: 1.5),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: Corner.all(Corner.small),
-        borderSide: const BorderSide(color: Paper.accent, width: 1.5),
+        borderSide: BorderSide(color: Paper.accent, width: 1.5),
       ),
     );
 

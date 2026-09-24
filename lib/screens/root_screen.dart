@@ -16,7 +16,7 @@ class RootScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final key = ref.watch(apiKeyProvider);
     return key.when(
-      loading: () => const Scaffold(
+      loading: () => Scaffold(
         backgroundColor: Paper.bg,
         body: Center(
           child: SizedBox(
@@ -28,7 +28,7 @@ class RootScreen extends ConsumerWidget {
       ),
       error: (error, _) => PaperScreen(
         children: [
-          const MonoLabel('ReplyLikeMe', color: Paper.accent),
+          MonoLabel('ReplyLikeMe', color: Paper.accent),
           FailureNotice(
             error: error,
             title: "Couldn't read the saved key",

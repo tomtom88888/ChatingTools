@@ -2,6 +2,7 @@
 *.txt
 *.zip
 !test/fixtures/*.txt
+!assets/fonts/*-OFL.txt
 exports/
 chat_exports/
 *.jsonl

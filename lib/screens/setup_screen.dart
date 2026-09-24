@@ -49,7 +49,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         _failure = null;
       });
     } else {
-      setState(() {}); // the button enables as soon as there is something to check
+      setState(
+        () {},
+      ); // the button enables as soon as there is something to check
     }
   }
 
@@ -134,7 +136,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const MonoLabel('ReplyLikeMe', color: Paper.accent),
+            MonoLabel('ReplyLikeMe', color: Paper.accent),
             const SizedBox(height: 12),
             const SerifTitle(
               'It writes back ',
@@ -171,7 +173,6 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             onAction: _busy ? null : _submit,
           ),
       ],
-
     );
   }
 }
@@ -213,7 +214,7 @@ class _WhereYourWordsGo extends StatelessWidget {
                 width: 7,
                 height: 7,
                 margin: const EdgeInsets.only(top: 6, right: 11),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: Paper.green,
                   shape: BoxShape.circle,
                 ),
@@ -320,11 +321,7 @@ class _KeyField extends StatelessWidget {
               Expanded(
                 child: Text(
                   problem!,
-                  style: Type.prose(
-                    size: 13,
-                    color: Paper.accent,
-                    height: 1.4,
-                  ),
+                  style: Type.prose(size: 13, color: Paper.accent, height: 1.4),
                 ),
               ),
               if (onStripWhitespace != null) ...[

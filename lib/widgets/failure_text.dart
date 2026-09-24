@@ -23,7 +23,12 @@ String describeFailure(Object error) {
 
 /// A failure stated in the design's own surface, with an optional retry.
 class FailureNotice extends StatelessWidget {
-  const FailureNotice({required this.error, this.onRetry, this.title, super.key});
+  const FailureNotice({
+    required this.error,
+    this.onRetry,
+    this.title,
+    super.key,
+  });
 
   final Object error;
   final VoidCallback? onRetry;
@@ -74,7 +79,7 @@ void showToast(BuildContext context, String message, {String? detail}) {
               detail,
               style: Type.prose(
                 size: 12.5,
-                color: const Color(0x99FAF7F0),
+                color: Paper.onInk.withValues(alpha: 0.7),
                 height: 1.45,
               ),
             ),

@@ -181,29 +181,33 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     final service = ref.read(fineTuneServiceProvider);
     if (service == null) return;
     unawaited(_watch?.cancel());
-    _watch = service.watch(jobId).listen(
-      (job) async {
-        if (mounted) setState(() => _job = job);
-        if (!job.isTerminal) return;
+    _watch = service
+        .watch(jobId)
+        .listen(
+          (job) async {
+            if (mounted) setState(() => _job = job);
+            if (!job.isTerminal) return;
 
-        await ref.read(settingsStoreProvider).setPendingFineTuneJobId(null);
-        final model = job.fineTunedModel;
-        if (job.status == FineTuneStatus.succeeded &&
-            model != null &&
-            model.isNotEmpty) {
-          // Save the model and switch to it: the user paid for it.
-          await ref.read(settingsProvider.notifier).edit(
-            (s) => s.copyWith(
-              fineTunedModel: model,
-              mode: TrainingMode.fineTune,
-            ),
-          );
-        }
-      },
-      onError: (Object error) {
-        if (mounted) setState(() => _error = error);
-      },
-    );
+            await ref.read(settingsStoreProvider).setPendingFineTuneJobId(null);
+            final model = job.fineTunedModel;
+            if (job.status == FineTuneStatus.succeeded &&
+                model != null &&
+                model.isNotEmpty) {
+              // Save the model and switch to it: the user paid for it.
+              await ref
+                  .read(settingsProvider.notifier)
+                  .edit(
+                    (s) => s.copyWith(
+                      fineTunedModel: model,
+                      mode: TrainingMode.fineTune,
+                    ),
+                  );
+            }
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _error = error);
+          },
+        );
   }
 
   Future<void> _cancelJob() async {
@@ -235,9 +239,7 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 PaperAction(
-                  title: _starting
-                      ? 'Starting…'
-                      : 'Review the cost and start',
+                  title: _starting ? 'Starting…' : 'Review the cost and start',
                   centred: true,
                   busy: _starting,
                   onTap: _starting ? null : _start,
@@ -251,13 +253,7 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
       children: [
         Align(
           alignment: Alignment.centerLeft,
-          child: GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: const Text(
-              '←',
-              style: TextStyle(fontSize: 19, color: Paper.secondary),
-            ),
-          ),
+          child: BackArrow(onTap: () => Navigator.of(context).pop()),
         ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,7 +307,8 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
             locked: running || _starting,
             onEpochs: _setEpochs,
           ),
-        if (job != null) _JobCard(job: job, onCancel: running ? _cancelJob : null),
+        if (job != null)
+          _JobCard(job: job, onCancel: running ? _cancelJob : null),
         if (settings.hasFineTunedModel)
           PaperCard(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -338,12 +335,14 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => ref.read(settingsProvider.notifier).edit(
-                    (s) => s.copyWith(
-                      clearFineTunedModel: true,
-                      mode: TrainingMode.styleMemory,
-                    ),
-                  ),
+                  onTap: () => ref
+                      .read(settingsProvider.notifier)
+                      .edit(
+                        (s) => s.copyWith(
+                          clearFineTunedModel: true,
+                          mode: TrainingMode.styleMemory,
+                        ),
+                      ),
                   child: Text(
                     'Forget',
                     style: Type.strong(size: 13, color: Paper.accent),
@@ -386,11 +385,14 @@ class _DatasetCard extends StatelessWidget {
           emphasis: true,
         ),
         FigureRow('Base model', settings.fineTuneBaseModel),
-        FigureRow('Context per example', 'up to ${settings.contextTurns} turns'),
+        FigureRow(
+          'Context per example',
+          'up to ${settings.contextTurns} turns',
+        ),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.only(top: 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(top: BorderSide(color: Paper.dividerFirm)),
           ),
           child: Row(
@@ -403,7 +405,9 @@ class _DatasetCard extends StatelessWidget {
               ),
               _Nudge(
                 icon: Icons.remove,
-                onTap: locked || epochs <= 1 ? null : () => onEpochs(epochs - 1),
+                onTap: locked || epochs <= 1
+                    ? null
+                    : () => onEpochs(epochs - 1),
               ),
               SizedBox(
                 width: 40,
@@ -482,11 +486,11 @@ class _JobCard extends StatelessWidget {
             Expanded(
               child: Text(
                 job.status.label,
-                style: Type.strong(size: 15, color: Paper.onInk, height: 1.3),
+                style: Type.strong(size: 15, color: Paper.onHero, height: 1.3),
               ),
             ),
             if (!job.isTerminal)
-              const SizedBox(
+              SizedBox(
                 width: 16,
                 height: 16,
                 child: CircularProgressIndicator(
@@ -501,7 +505,7 @@ class _JobCard extends StatelessWidget {
           job.id,
           style: Type.numeric(
             size: 12,
-            color: const Color(0x99FAF7F0),
+            color: Paper.onHero.withValues(alpha: 0.60),
             weight: FontWeight.w400,
           ),
         ),
@@ -533,7 +537,7 @@ class _JobCard extends StatelessWidget {
             job.error!,
             style: Type.prose(
               size: 13,
-              color: const Color(0xFFE9A98C),
+              color: const Color(0xFFFFD9CF),
               height: 1.45,
             ),
           ),
@@ -545,7 +549,7 @@ class _JobCard extends StatelessWidget {
             'job is picked back up next time you open this screen.',
             style: Type.prose(
               size: 12,
-              color: const Color(0x80FAF7F0),
+              color: Paper.onHero.withValues(alpha: 0.50),
               height: 1.45,
             ),
           ),
@@ -558,12 +562,15 @@ class _JobCard extends StatelessWidget {
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 borderRadius: Corner.all(Corner.small),
-                border: Border.all(color: const Color(0x40FAF7F0), width: 1.5),
+                border: Border.all(
+                  color: Paper.onHero.withValues(alpha: 0.25),
+                  width: 1.5,
+                ),
               ),
               child: Center(
                 child: Text(
                   'Cancel the job',
-                  style: Type.strong(size: 14, color: Paper.onInk),
+                  style: Type.strong(size: 14, color: Paper.onHero),
                 ),
               ),
             ),

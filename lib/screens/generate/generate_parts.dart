@@ -28,13 +28,7 @@ class GenerateHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      GestureDetector(
-        onTap: onBack,
-        child: const Text(
-          '←',
-          style: TextStyle(fontSize: 19, color: Paper.secondary),
-        ),
-      ),
+      BackArrow(onTap: onBack),
       Expanded(
         child: Center(
           child: GestureDetector(
@@ -51,11 +45,7 @@ class GenerateHeader extends StatelessWidget {
                   ),
                 ),
                 if (onPickChat != null)
-                  const Icon(
-                    Icons.expand_more,
-                    size: 18,
-                    color: Paper.tertiary,
-                  ),
+                  Icon(Icons.expand_more, size: 18, color: Paper.tertiary),
               ],
             ),
           ),
@@ -157,7 +147,7 @@ class _ChoiceRow extends StatelessWidget {
               ],
             ),
           ),
-          if (selected) const Icon(Icons.check, size: 18, color: Paper.accent),
+          if (selected) Icon(Icons.check, size: 18, color: Paper.accent),
         ],
       ),
     ),
@@ -301,15 +291,15 @@ class NoteField extends StatelessWidget {
           contentPadding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           border: OutlineInputBorder(
             borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.border, width: 1.5),
+            borderSide: BorderSide(color: Paper.border, width: 1.5),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.border, width: 1.5),
+            borderSide: BorderSide(color: Paper.border, width: 1.5),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.accent, width: 1.5),
+            borderSide: BorderSide(color: Paper.accent, width: 1.5),
           ),
         ),
       ),

@@ -175,7 +175,7 @@ void main() {
     await pump(tester);
     await pasteAndWrite(tester);
 
-    expect(find.text('REPLY · 3 BUBBLES'), findsOneWidget);
+    expect(find.text('reply · 3 bubbles'), findsOneWidget);
     await tester.tap(find.text('Copy 1 of 3'));
     await tester.pumpAndSettle();
     expect(clipboard, 'yeah');

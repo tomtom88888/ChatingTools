@@ -124,7 +124,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final chatCount = ref.watch(chatsProvider).value?.length ?? 0;
 
     return settingsValue.when(
-      loading: () => const Scaffold(
+      loading: () => Scaffold(
         backgroundColor: Paper.bg,
         body: Center(
           child: SizedBox(

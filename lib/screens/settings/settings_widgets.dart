@@ -13,13 +13,7 @@ class SettingsBack extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Align(
     alignment: Alignment.centerLeft,
-    child: GestureDetector(
-      onTap: onTap,
-      child: const Text(
-        '←',
-        style: TextStyle(fontSize: 19, color: Paper.secondary),
-      ),
-    ),
+    child: BackArrow(onTap: onTap),
   );
 }
 
@@ -47,9 +41,7 @@ class TapRow extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 12),
     decoration: BoxDecoration(
-      border: last
-          ? null
-          : const Border(bottom: BorderSide(color: Paper.divider)),
+      border: last ? null : Border(bottom: BorderSide(color: Paper.divider)),
     ),
     child: Row(
       children: [
@@ -153,11 +145,7 @@ class _ModelFieldState extends State<ModelField> {
         style: Type.numeric(size: 14, weight: FontWeight.w400),
         decoration: paperFieldDecoration('model id').copyWith(
           suffixIcon: PopupMenuButton<String>(
-            icon: const Icon(
-              Icons.expand_more,
-              size: 20,
-              color: Paper.tertiary,
-            ),
+            icon: Icon(Icons.expand_more, size: 20, color: Paper.tertiary),
             tooltip: 'Suggestions',
             color: Paper.bg,
             itemBuilder: (context) => [
@@ -319,7 +307,7 @@ class ModeChoice extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     decoration: BoxDecoration(
-                      color: settings.mode == mode ? Paper.ink : Paper.card,
+                      color: settings.mode == mode ? Paper.accent : Paper.card,
                       borderRadius: Corner.all(Corner.small),
                       border: settings.mode == mode
                           ? null
@@ -333,7 +321,7 @@ class ModeChoice extends StatelessWidget {
                         style: Type.strong(
                           size: 14,
                           color: settings.mode == mode
-                              ? Paper.onInk
+                              ? Paper.onAccent
                               : Paper.ink,
                         ),
                       ),

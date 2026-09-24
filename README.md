@@ -94,6 +94,21 @@ examples as context.
 
 ---
 
+## Look and feel
+
+The app is styled like a messaging app, because everything it makes is a
+message: a teal accent, green "sent" bubbles for your side of a
+conversation and white ones for theirs, rounded Nunito type, and soft cards.
+Suggestions appear as the green bubbles they would be once sent, with a
+double tick once copied. It follows the phone between light and dark mode,
+switching live without losing your place.
+
+Nunito is bundled (Latin subset, SIL Open Font License, see
+`assets/fonts/Nunito-OFL.txt`); Hebrew, Arabic and other scripts fall back to
+the phone's own font.
+
+---
+
 ## Setup
 
 ### Requirements
@@ -108,7 +123,7 @@ examples as context.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 243 tests, no network or device needed
+flutter test          # 244 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -311,8 +326,9 @@ lib/
                              settings, chat data
     generate/                the transcript, reply cards and other parts
     settings/                settings widgets and the spending section
-  widgets/                   the paper design kit, dialogs, formatting
-test/                        243 tests (218 unit, 25 widget)
+  theme/tokens.dart          the light and dark palettes, type and corners
+  widgets/                   the shared widget kit, dialogs, formatting
+test/                        244 tests (218 unit, 26 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -344,7 +360,7 @@ them.
 flutter test
 ```
 
-243 tests, and no network or device is needed for any of them.
+244 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap

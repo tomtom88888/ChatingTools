@@ -32,10 +32,7 @@ ChatMemory hebrewChat() => ChatMemory(
 const double navBar = 48;
 const double statusBar = 24;
 
-Future<void> pumpHome(
-  WidgetTester tester, {
-  ChatMemory? chat,
-}) async {
+Future<void> pumpHome(WidgetTester tester, {ChatMemory? chat}) async {
   tester.view.physicalSize = const Size(1080, 2340);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
@@ -76,10 +73,7 @@ Future<void> pumpHome(
                 top: statusBar,
                 bottom: navBar,
               ),
-              padding: const EdgeInsets.only(
-                top: statusBar,
-                bottom: navBar,
-              ),
+              padding: const EdgeInsets.only(top: statusBar, bottom: navBar),
             ),
             child: const HomeScreen(),
           ),
@@ -95,18 +89,12 @@ Future<void> pumpHome(
 /// Load the faces the app actually ships instead.
 Future<void> loadAppFonts() async {
   const families = <String, List<String>>{
-    'Instrument Serif': [
-      'assets/fonts/InstrumentSerif-400.ttf',
-      'assets/fonts/InstrumentSerif-400Italic.ttf',
-    ],
-    'Public Sans': [
-      'assets/fonts/PublicSans-400.ttf',
-      'assets/fonts/PublicSans-500.ttf',
-      'assets/fonts/PublicSans-600.ttf',
-    ],
-    'JetBrains Mono': [
-      'assets/fonts/JetBrainsMono-400.ttf',
-      'assets/fonts/JetBrainsMono-500.ttf',
+    'Nunito': [
+      'assets/fonts/Nunito-Regular.ttf',
+      'assets/fonts/Nunito-Medium.ttf',
+      'assets/fonts/Nunito-SemiBold.ttf',
+      'assets/fonts/Nunito-Bold.ttf',
+      'assets/fonts/Nunito-ExtraBold.ttf',
     ],
   };
   for (final family in families.entries) {
@@ -187,8 +175,8 @@ void main() {
       expect(footnote, findsOneWidget);
 
       final bottomOfText = tester.getRect(footnote).bottom;
-      final screenBottom = tester.view.physicalSize.height /
-          tester.view.devicePixelRatio;
+      final screenBottom =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(
         bottomOfText,
         lessThanOrEqualTo(screenBottom - navBar),
@@ -203,15 +191,15 @@ void main() {
 
       final footnote = find.text('Your chat history never leaves this phone.');
       final bottomOfText = tester.getRect(footnote).bottom;
-      final screenBottom = tester.view.physicalSize.height /
-          tester.view.devicePixelRatio;
+      final screenBottom =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(bottomOfText, lessThanOrEqualTo(screenBottom - navBar));
     });
 
     testWidgets('the wordmark clears the status bar', (tester) async {
       await pumpHome(tester, chat: hebrewChat());
 
-      final top = tester.getRect(find.text('REPLYLIKEME')).top;
+      final top = tester.getRect(find.text('ReplyLikeMe')).top;
       expect(top, greaterThanOrEqualTo(statusBar));
     });
 
