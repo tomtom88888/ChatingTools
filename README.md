@@ -101,7 +101,7 @@ examples as context.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 220 tests, no network or device needed
+flutter test          # 231 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -281,6 +281,7 @@ lib/
     whatsapp_parser.dart     both export layouts -> messages, turns, exchanges
     chat_export_reader.dart  .txt / .zip -> export text
     pasted_conversation.dart pasted text -> messages
+    quoted_replies.dart      splits a reply from the message it quotes
     openai_service.dart      chat, vision, embeddings, files, fine-tuning
     openai_exception.dart    failures, each with a message worth showing
     vector_math.dart         normalise, dot product, heap top-k, blob encoding
@@ -302,7 +303,7 @@ lib/
     generate/                the transcript, reply cards and other parts
     settings/                settings widgets and the spending section
   widgets/                   the paper design kit, dialogs, formatting
-test/                        220 tests (196 unit, 24 widget)
+test/                        231 tests (207 unit, 24 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -313,6 +314,7 @@ test/fixtures/               synthetic Android and iOS exports
 | "OpenAI rejected that API key" | Wrong or revoked key. Replace it in Settings. |
 | "Your OpenAI account has no credit left" | Add billing at platform.openai.com. |
 | "OpenAI is rate-limiting this key" | Handled automatically with backoff; if it persists, wait. |
+| A reply shows the message it answered at its start | Fixed: a reply's quote box is read separately, shown as a small quote above the bubble, and kept out of the text. If one slips through, tap *Fix the reading*. |
 | "Couldn't read that screenshot" | The vision model didn't return usable JSON. Try a clearer screenshot or another vision model. |
 | "That file doesn't look like a WhatsApp export" | Wrong file, or an export from another app. |
 | "There are no replies of yours to learn from" | The name picked as yours is probably the other person. |
@@ -333,7 +335,7 @@ them.
 flutter test
 ```
 
-220 tests, and no network or device is needed for any of them.
+231 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap

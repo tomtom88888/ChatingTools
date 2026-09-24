@@ -359,6 +359,12 @@ void main() {
         );
         final url = (imagePart['image_url'] as Map)['url'] as String;
         expect(url, startsWith('data:image/png;base64,'));
+
+        // The model is told that a reply's quote box is not the message.
+        final system =
+            ((sent!['messages'] as List).first as Map)['content'] as String;
+        expect(system, contains('That box is NOT part of the message'));
+        expect(system, contains('"quoted"'));
       },
     );
 

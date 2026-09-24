@@ -123,13 +123,45 @@ class _TranscriptLine extends StatelessWidget {
             bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
           ),
         ),
-        child: Text(
-          message.text,
-          style: Type.prose(
-            size: 13.5,
-            color: mine ? Paper.onInk : Paper.ink,
-            height: 1.4,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // The message this one replies to, drawn like WhatsApp's quote
+            // box so it reads as context rather than as words sent here.
+            if (message.quoted != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 5),
+                padding: const EdgeInsets.fromLTRB(7, 3, 7, 3),
+                decoration: BoxDecoration(
+                  color: mine ? const Color(0x1FFAF7F0) : Paper.panel,
+                  border: Border(
+                    left: BorderSide(
+                      color: mine ? Paper.amber : Paper.accent,
+                      width: 2.5,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  message.quoted!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.prose(
+                    size: 12,
+                    color: mine ? const Color(0xA6FAF7F0) : Paper.tertiary,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            Text(
+              message.text,
+              style: Type.prose(
+                size: 13.5,
+                color: mine ? Paper.onInk : Paper.ink,
+                height: 1.4,
+              ),
+            ),
+          ],
         ),
       ),
     );
