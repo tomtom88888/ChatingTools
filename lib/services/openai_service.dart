@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../models/api_usage.dart';
 import '../models/extracted_message.dart';
 import '../models/finetune_job.dart';
 import 'openai_exception.dart';
@@ -26,6 +27,7 @@ class OpenAiService {
     this.requestTimeout = const Duration(seconds: 60),
     this.visionTimeout = const Duration(seconds: 120),
     this.maxRetries = 3,
+    this.onUsage,
   }) : _apiKey = apiKey.trim(),
        _client = client ?? http.Client(),
        _ownsClient = client == null;
@@ -37,6 +39,21 @@ class OpenAiService {
   final Duration requestTimeout;
   final Duration visionTimeout;
   final int maxRetries;
+
+  /// Told about the tokens every successful call used, as OpenAI reported
+  /// them, so spending can be tracked on the device.
+  final void Function(ApiUsage usage)? onUsage;
+
+  void _report(
+    Map<String, Object?> json, {
+    required UsageKind kind,
+    required String model,
+  }) {
+    final callback = onUsage;
+    if (callback == null) return;
+    final usage = ApiUsage.fromResponse(json, kind: kind, model: model);
+    if (usage != null) callback(usage);
+  }
 
   /// Newer models take `max_completion_tokens`; older ones only understand
   /// `max_tokens`. Discovered once from a 400 and remembered, so the fallback
@@ -70,6 +87,7 @@ class OpenAiService {
     }
 
     final json = await _postJson('/embeddings', body, timeout: requestTimeout);
+    _report(json, kind: UsageKind.embedding, model: model);
     final data = json['data'];
     if (data is! List || data.length != inputs.length) {
       throw OpenAiException(
@@ -111,6 +129,7 @@ class OpenAiService {
     int? maxOutputTokens,
     bool jsonMode = false,
     Duration? timeout,
+    UsageKind usageKind = UsageKind.generation,
   }) async {
     final text = await _chat(
       model: model,
@@ -119,6 +138,7 @@ class OpenAiService {
       maxOutputTokens: maxOutputTokens,
       jsonMode: jsonMode,
       timeout: timeout ?? requestTimeout,
+      usageKind: usageKind,
     );
     if (text.trim().isEmpty) {
       throw const OpenAiException(
@@ -136,6 +156,7 @@ class OpenAiService {
     required int? maxOutputTokens,
     required bool jsonMode,
     required Duration timeout,
+    required UsageKind usageKind,
   }) async {
     // Up to two extra attempts, each dropping a parameter this model rejected.
     for (var attempt = 0; attempt < 3; attempt++) {
@@ -157,6 +178,7 @@ class OpenAiService {
           body,
           timeout: timeout,
         );
+        _report(json, kind: usageKind, model: model);
         return _firstChoiceContent(json);
       } on OpenAiException catch (error) {
         if (error.kind != OpenAiErrorKind.badRequest) rethrow;
@@ -252,6 +274,7 @@ class OpenAiService {
       maxOutputTokens: 4000,
       jsonMode: true,
       timeout: visionTimeout,
+      usageKind: UsageKind.vision,
     );
 
     return parseExtractedConversation(raw);

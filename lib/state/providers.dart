@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/api_usage.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
+import '../models/suggestion_feedback.dart';
 import '../services/embeddings_store.dart';
 import '../services/exchange_store.dart';
 import '../services/finetune_service.dart';
@@ -10,6 +12,7 @@ import '../services/reply_generator.dart';
 import '../services/secure_key_store.dart';
 import '../services/settings_store.dart';
 import '../services/style_memory_service.dart';
+import '../services/usage_store.dart';
 
 // --------------------------------------------------------------------- storage
 
@@ -20,6 +23,8 @@ final secureKeyStoreProvider = Provider<SecureKeyStore>(
 final settingsStoreProvider = Provider<SettingsStore>(
   (ref) => const SettingsStore(),
 );
+
+final usageStoreProvider = Provider<UsageStore>((ref) => const UsageStore());
 
 /// Typed as the interface so tests can substitute an in-memory store.
 final exchangeStoreProvider = Provider<ExchangeStore>((ref) {
@@ -85,7 +90,12 @@ final settingsProvider = AsyncNotifierProvider<SettingsNotifier, AppSettings>(
 final openAiServiceProvider = Provider<OpenAiService?>((ref) {
   final key = ref.watch(apiKeyProvider).value;
   if (key == null || key.isEmpty) return null;
-  final service = OpenAiService(apiKey: key);
+  final service = OpenAiService(
+    apiKey: key,
+    // Looked up on every call rather than captured, so the tally keeps
+    // counting after "delete all my data" rebuilds it.
+    onUsage: (usage) => ref.read(usageProvider.notifier).record(usage),
+  );
   ref.onDispose(service.close);
   return service;
 });
@@ -113,13 +123,72 @@ final fineTuneServiceProvider = Provider<FineTuneService?>((ref) {
 
 // ---------------------------------------------------------------- style memory
 
-/// What the stored style memory was built from. Invalidate after training.
-final styleMemoryStatsProvider = FutureProvider<StyleMemoryStats?>(
-  (ref) => ref.watch(exchangeStoreProvider).stats(),
+/// Every learned chat, with whether it is switched on.
+class ChatsNotifier extends AsyncNotifier<List<ChatMemory>> {
+  @override
+  Future<List<ChatMemory>> build() => ref.read(exchangeStoreProvider).chats();
+
+  /// Re-reads the store, after training or saving a reply.
+  Future<void> reload() async {
+    state = AsyncValue.data(await ref.read(exchangeStoreProvider).chats());
+  }
+
+  /// Checks or unchecks a chat in the home list. The change shows at once and
+  /// is written behind it.
+  Future<void> setEnabled(int chatId, {required bool enabled}) async {
+    final current = state.value;
+    if (current != null) {
+      state = AsyncValue.data([
+        for (final chat in current)
+          chat.id == chatId ? chat.copyWith(enabled: enabled) : chat,
+      ]);
+    }
+    await ref
+        .read(exchangeStoreProvider)
+        .setChatEnabled(chatId, enabled: enabled);
+  }
+
+  Future<void> delete(int chatId) async {
+    await ref.read(exchangeStoreProvider).deleteChat(chatId);
+    await reload();
+  }
+}
+
+final chatsProvider = AsyncNotifierProvider<ChatsNotifier, List<ChatMemory>>(
+  ChatsNotifier.new,
 );
 
-final styleMemoryCountProvider = FutureProvider<int>(
-  (ref) => ref.watch(exchangeStoreProvider).count(),
+/// What happened to each set of suggestions, newest first.
+final feedbackProvider = FutureProvider<List<SuggestionFeedback>>(
+  (ref) => ref.watch(exchangeStoreProvider).feedback(),
+);
+
+// ---------------------------------------------------------------------- usage
+
+/// Tokens used per month, newest month first.
+class UsageNotifier extends AsyncNotifier<List<MonthlyUsage>> {
+  /// Records are chained so two calls finishing together can't both read the
+  /// old tally and lose one of the updates.
+  Future<void> _pending = Future.value();
+
+  @override
+  Future<List<MonthlyUsage>> build() => ref.read(usageStoreProvider).load();
+
+  void record(ApiUsage usage) {
+    _pending = _pending.then((_) async {
+      try {
+        final months = await ref.read(usageStoreProvider).record(usage);
+        state = AsyncValue.data(months);
+      } on Object {
+        // Counting is a convenience; a failure to count must never fail the
+        // call that was counted.
+      }
+    });
+  }
+}
+
+final usageProvider = AsyncNotifierProvider<UsageNotifier, List<MonthlyUsage>>(
+  UsageNotifier.new,
 );
 
 // ----------------------------------------------------------------- data wiping
@@ -136,11 +205,13 @@ class DataWiper {
   Future<void> wipe({required bool includeApiKey}) async {
     await _ref.read(exchangeStoreProvider).deleteEverything();
     await _ref.read(settingsStoreProvider).clear();
+    await _ref.read(usageStoreProvider).clear();
     if (includeApiKey) await _ref.read(apiKeyProvider.notifier).clear();
     _ref.invalidate(settingsProvider);
     _ref.invalidate(exchangeStoreProvider);
-    _ref.invalidate(styleMemoryStatsProvider);
-    _ref.invalidate(styleMemoryCountProvider);
+    _ref.invalidate(chatsProvider);
+    _ref.invalidate(feedbackProvider);
+    _ref.invalidate(usageProvider);
   }
 }
 

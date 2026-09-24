@@ -9,12 +9,15 @@ import '../services/share_intake.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
+import '../widgets/format.dart';
+import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
 import 'generate_screen.dart';
 import 'settings_screen.dart';
+import 'style_report_screen.dart';
 import 'train_screen.dart';
 
-/// What the app knows, and the two things you can do about it.
+/// What the app knows, which of it to use, and the things you can do.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,21 +26,22 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  StreamSubscription<SharedExport>? _shareSubscription;
+  StreamSubscription<SharedItem>? _shareSubscription;
 
   @override
   void initState() {
     super.initState();
-    // A chat export shared into the app skips this screen and opens Train.
+    // Something shared into the app skips this screen: an export opens Train,
+    // a screenshot opens Generate with it already picked.
     _shareSubscription = ShareIntake.stream().listen(
-      _openTrainingFor,
+      _openShared,
       onError: (Object error) {
         if (mounted) showFailureSnackBar(context, error);
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await ShareIntake.initial();
-      if (initial != null && mounted) unawaited(_openTrainingFor(initial));
+      if (initial != null && mounted) unawaited(_openShared(initial));
     });
   }
 
@@ -47,46 +51,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _openTrainingFor(SharedExport export) async {
+  Future<void> _openShared(SharedItem item) async {
     await ShareIntake.markHandled();
     if (!mounted) return;
-    await _push(TrainScreen(sharedExport: export));
+    switch (item) {
+      case SharedExport():
+        await _push(TrainScreen(sharedExport: item));
+      case SharedScreenshot():
+        await _push(GenerateScreen(sharedScreenshot: item));
+    }
   }
 
   void _refresh() {
-    ref.invalidate(styleMemoryStatsProvider);
-    ref.invalidate(styleMemoryCountProvider);
+    ref.invalidate(chatsProvider);
+    ref.invalidate(feedbackProvider);
   }
 
   Future<void> _push(Widget screen) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => screen),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => screen));
     if (mounted) _refresh();
+  }
+
+  Future<void> _confirmDelete(ChatMemory chat) async {
+    final name = chat.theirName.isEmpty ? 'this chat' : chat.theirName;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => PaperDialog(
+        title: 'Forget ${bidiIsolate(name)}?',
+        confirmLabel: 'Forget it',
+        destructive: true,
+        onConfirm: () => Navigator.of(context).pop(true),
+        child: Text(
+          'Removes the ${grouped(chat.exchangeCount)} replies learned from '
+          'this chat. Your other chats stay as they are. Importing the export '
+          'again brings it back.',
+          style: Type.prose(size: 14, color: Paper.body),
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(chatsProvider.notifier).delete(chat.id);
+    } on Object catch (error) {
+      if (mounted) showFailureSnackBar(context, error);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final stats = ref.watch(styleMemoryStatsProvider);
+    final chats = ref.watch(chatsProvider);
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
 
-    return stats.when(
+    void openSettings() => _push(const SettingsScreen());
+    void openTrain() => _push(const TrainScreen());
+
+    return chats.when(
       loading: () => _HomeFrame(
-        onSettings: () => _push(const SettingsScreen()),
+        onSettings: openSettings,
         bottom: _Actions(
           trained: false,
-          count: 0,
-          onTrain: () => _push(const TrainScreen()),
+          anyEnabled: false,
+          onTrain: openTrain,
           onGenerate: null,
         ),
         children: const [_LoadingSkeleton()],
       ),
       error: (error, _) => _HomeFrame(
-        onSettings: () => _push(const SettingsScreen()),
+        onSettings: openSettings,
         bottom: _Actions(
           trained: false,
-          count: 0,
-          onTrain: () => _push(const TrainScreen()),
+          anyEnabled: false,
+          onTrain: openTrain,
           onGenerate: null,
           trainTitle: 'Rebuild from an export',
         ),
@@ -101,25 +138,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      data: (value) {
-        final trained = value != null && !value.isEmpty;
+      data: (all) {
+        final learned = all.where((c) => !c.isEmpty).toList();
+        final enabled = learned.where((c) => c.enabled).toList();
+        final trained = learned.isNotEmpty;
+        final stale = enabled
+            .where(
+              (c) => !c.matches(
+                settings.embeddingModel,
+                settings.embeddingDimensions,
+              ),
+            )
+            .toList();
         return _HomeFrame(
-          onSettings: () => _push(const SettingsScreen()),
+          onSettings: openSettings,
           bottom: _Actions(
             trained: trained,
-            count: value?.exchangeCount ?? 0,
-            onTrain: () => _push(const TrainScreen()),
-            onGenerate: trained ? () => _push(const GenerateScreen()) : null,
+            anyEnabled: enabled.isNotEmpty,
+            onTrain: openTrain,
+            onGenerate: enabled.isNotEmpty
+                ? () => _push(const GenerateScreen())
+                : null,
           ),
           children: trained
               ? [
-                  _KnowsYou(stats: value),
-                  _MemoryDetails(stats: value),
+                  _KnowsYou(enabled: enabled),
+                  _ChatList(
+                    chats: learned,
+                    onToggle: (chat, on) => ref
+                        .read(chatsProvider.notifier)
+                        .setEnabled(chat.id, enabled: on),
+                    onDelete: _confirmDelete,
+                  ),
+                  if (stale.isNotEmpty)
+                    Notice(
+                      '${nameList([for (final c in stale) c.theirName])} '
+                      '${stale.length == 1 ? "was" : "were"} built with a '
+                      'different fingerprint model or size than Settings now '
+                      'uses, so ${stale.length == 1 ? "it is" : "they are"} '
+                      'skipped when writing. Import the export again to '
+                      'rebuild.',
+                      tone: NoticeTone.caution,
+                      title: 'Needs rebuilding',
+                    ),
+                  _MemoryDetails(chats: enabled.isEmpty ? learned : enabled),
+                  PaperAction(
+                    title: 'Your style report',
+                    subtitle: 'How you text, chat by chat — no API calls',
+                    tone: ActionTone.outline,
+                    onTap: () => _push(const StyleReportScreen()),
+                  ),
                   if (settings.mode == TrainingMode.fineTune &&
                       !settings.hasFineTunedModel)
-                    _FineTuneMismatch(
-                      onFix: () => _push(const SettingsScreen()),
-                    ),
+                    _FineTuneMismatch(onFix: openSettings),
                 ]
               : const [_DoesNotKnowYou()],
         );
@@ -171,104 +242,251 @@ class _HomeFrame extends StatelessWidget {
   );
 }
 
-/// The hero: who it knows, and how many of your replies it read.
+/// The hero: whose chats replies are drawn from, and how many of your replies
+/// that is.
 class _KnowsYou extends StatelessWidget {
-  const _KnowsYou({required this.stats});
+  const _KnowsYou({required this.enabled});
 
-  final StyleMemoryStats stats;
+  final List<ChatMemory> enabled;
 
   @override
-  Widget build(BuildContext context) => InkCard(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'It knows how you write to',
-          style: Type.prose(size: 15, color: const Color(0x9EFAF7F0), height: 1.3),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          stats.theirName.isEmpty ? 'them' : stats.theirName,
-          style: Type.display(40, color: Paper.onInk),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              _grouped(stats.exchangeCount),
-              style: Type.numeric(size: 30, color: Paper.amber),
+  Widget build(BuildContext context) {
+    final count = enabled.fold(0, (sum, c) => sum + c.exchangeCount);
+    return InkCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            enabled.isEmpty
+                ? 'Tick a chat below to write from it'
+                : 'It knows how you write to',
+            style: Type.prose(
+              size: 15,
+              color: const Color(0x9EFAF7F0),
+              height: 1.3,
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                'of your replies learned',
-                style: Type.prose(size: 14, color: const Color(0x9EFAF7F0)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            enabled.isEmpty
+                ? 'no one, for now'
+                : nameList([for (final c in enabled) c.theirName]),
+            style: Type.display(40, color: Paper.onInk),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                grouped(count),
+                style: Type.numeric(size: 30, color: Paper.amber),
               ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'of your replies learned',
+                  style: Type.prose(size: 14, color: const Color(0x9EFAF7F0)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Every learned chat, each with a tick box: ticked chats are the ones
+/// replies are written from.
+class _ChatList extends StatelessWidget {
+  const _ChatList({
+    required this.chats,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  final List<ChatMemory> chats;
+  final void Function(ChatMemory chat, bool enabled) onToggle;
+  final ValueChanged<ChatMemory> onDelete;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          const Expanded(child: MonoLabel('Chats it writes from')),
+          Text(
+            '${chats.where((c) => c.enabled).length} of ${chats.length} on',
+            style: Type.numeric(
+              size: 11.5,
+              color: Paper.muted,
+              weight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 9),
+      PaperCard(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < chats.length; i++)
+              _ChatRow(
+                chat: chats[i],
+                last: i == chats.length - 1,
+                onToggle: (on) => onToggle(chats[i], on),
+                onDelete: () => onDelete(chats[i]),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 7),
+      Text(
+        'How you text a partner is not how you text your boss. Tick only the '
+        'chats that sound like the reply you want.',
+        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
+      ),
+    ],
+  );
+}
+
+class _ChatRow extends StatelessWidget {
+  const _ChatRow({
+    required this.chat,
+    required this.last,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  final ChatMemory chat;
+  final bool last;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final saved = chat.savedCount > 0 ? ' · ${chat.savedCount} starred' : '';
+    return InkWell(
+      key: ValueKey('chat-${chat.id}'),
+      onTap: () => onToggle(!chat.enabled),
+      borderRadius: Corner.all(Corner.small),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(2, 8, 0, 8),
+        decoration: BoxDecoration(
+          border: last
+              ? null
+              : const Border(bottom: BorderSide(color: Paper.divider)),
+        ),
+        child: Row(
+          children: [
+            Checkbox(
+              value: chat.enabled,
+              onChanged: (on) => onToggle(on ?? false),
+              activeColor: Paper.ink,
+              checkColor: Paper.onInk,
+              side: const BorderSide(color: Paper.placeholder, width: 1.5),
+              shape: RoundedRectangleBorder(
+                borderRadius: Corner.all(const Radius.circular(5)),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chat.theirName.isEmpty ? 'Unnamed chat' : chat.theirName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.strong(
+                      size: 15,
+                      height: 1.3,
+                      color: chat.enabled ? Paper.ink : Paper.tertiary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${grouped(chat.exchangeCount)} replies$saved · '
+                    '${dayMonth(chat.builtAt)}',
+                    style: Type.numeric(
+                      size: 11.5,
+                      color: Paper.muted,
+                      weight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              color: Paper.bg,
+              icon: const Icon(
+                Icons.more_horiz,
+                size: 20,
+                color: Paper.tertiary,
+              ),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text(
+                    'Forget this chat',
+                    style: Type.strong(size: 14, color: Paper.errorText),
+                  ),
+                ),
+              ],
+              onSelected: (_) => onDelete(),
             ),
           ],
         ),
-      ],
-    ),
-  );
-}
-
-/// Thousands separators, so a five-figure count reads at a glance.
-String _grouped(int value) {
-  final digits = value.toString();
-  final out = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
-    out.write(digits[i]);
+      ),
+    );
   }
-  return out.toString();
 }
 
 class _MemoryDetails extends StatelessWidget {
-  const _MemoryDetails({required this.stats});
+  const _MemoryDetails({required this.chats});
 
-  final StyleMemoryStats stats;
+  final List<ChatMemory> chats;
 
   @override
-  Widget build(BuildContext context) => PaperCard(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    child: Column(
-      // Without this the rows shrink to their content and centre themselves,
-      // taking the dividers with them; the design runs both full width.
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        StackedRow(
-          label: 'Learning from',
-          valueChild: NamePairValue(
-            me: stats.myName.isEmpty ? 'you' : stats.myName,
-            them: stats.theirName.isEmpty ? 'them' : stats.theirName,
+  Widget build(BuildContext context) {
+    final newest = chats.reduce((a, b) => a.builtAt.isAfter(b.builtAt) ? a : b);
+    final me = chats
+        .map((c) => c.myName)
+        .firstWhere((n) => n.isNotEmpty, orElse: () => 'you');
+    final models = {
+      for (final c in chats) '${c.embeddingModel} · ${c.dimensions}',
+    };
+    return PaperCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
+        // Without this the rows shrink to their content and centre themselves,
+        // taking the dividers with them; the design runs both full width.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          StackedRow(
+            label: 'Learning from',
+            valueChild: NamePairValue(
+              me: me,
+              them: nameList([for (final c in chats) c.theirName]),
+            ),
           ),
-        ),
-        StackedRow(
-          label: 'Fingerprints',
-          value: '${stats.embeddingModel} · ${stats.dimensions}',
-          mono: true,
-        ),
-        StackedRow(
-          label: 'Built',
-          value: _when(stats.builtAt),
-          last: true,
-        ),
-      ],
-    ),
-  );
-
-  static const List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  static String _when(DateTime at) {
-    final hour12 = at.hour % 12 == 0 ? 12 : at.hour % 12;
-    final suffix = at.hour < 12 ? 'am' : 'pm';
-    final minute = at.minute.toString().padLeft(2, '0');
-    return '${at.day} ${_months[at.month - 1]}, $hour12:$minute $suffix';
+          StackedRow(
+            label: 'Fingerprints',
+            value: models.join('\n'),
+            mono: true,
+          ),
+          StackedRow(
+            label: chats.length == 1 ? 'Built' : 'Last built',
+            value: dayMonthTime(newest.builtAt),
+            last: true,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -418,35 +636,40 @@ class _LoadingSkeleton extends StatelessWidget {
 class _Actions extends StatelessWidget {
   const _Actions({
     required this.trained,
-    required this.count,
+    required this.anyEnabled,
     required this.onTrain,
     required this.onGenerate,
     this.trainTitle,
   });
 
   final bool trained;
-  final int count;
+  final bool anyEnabled;
   final VoidCallback onTrain;
   final VoidCallback? onGenerate;
   final String? trainTitle;
 
   @override
   Widget build(BuildContext context) {
+    final locked = !trained || !anyEnabled;
     final write = PaperAction(
       title: 'Write a reply',
-      subtitle: trained
-          ? 'From a screenshot of your chat'
-          : 'Nothing learned yet — teach it first',
+      subtitle: !trained
+          ? 'Nothing learned yet — teach it first'
+          : anyEnabled
+          ? 'From a screenshot or pasted chat'
+          : 'Tick at least one chat above',
       tone: ActionTone.accent,
       onTap: onGenerate,
-      trailing: trained
-          ? null
-          : const Icon(Icons.lock_outline, size: 16, color: Paper.tertiary),
+      trailing: locked
+          ? const Icon(Icons.lock_outline, size: 16, color: Paper.tertiary)
+          : null,
     );
     final train = PaperAction(
-      title: trainTitle ?? (trained ? 'Refresh the memory' : 'Teach it your voice'),
+      title:
+          trainTitle ??
+          (trained ? 'Add or refresh a chat' : 'Teach it your voice'),
       subtitle: trained
-          ? 'Import a newer export · replaces all ${_grouped(count)}'
+          ? 'Import an export · only new replies are sent'
           : 'Import a WhatsApp export',
       tone: trained ? ActionTone.outline : ActionTone.ink,
       onTap: onTrain,
@@ -457,7 +680,11 @@ class _Actions extends StatelessWidget {
       children: [
         // Trained: writing is the everyday act, so it leads. Untrained: there
         // is nothing to write from, so teaching leads.
-        if (trained) ...[write, const SizedBox(height: 11), train] else ...[
+        if (trained) ...[
+          write,
+          const SizedBox(height: 11),
+          train,
+        ] else ...[
           train,
           const SizedBox(height: 11),
           write,

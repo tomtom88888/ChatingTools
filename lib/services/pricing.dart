@@ -1,3 +1,5 @@
+import '../models/api_usage.dart';
+
 /// Rough cost estimation.
 ///
 /// OpenAI's prices change, so these are defaults the user can override in the
@@ -15,6 +17,54 @@ class Pricing {
   static const double embeddingUsdPerMillionTokens = 0.02;
   static const double fineTuneTrainingUsdPerMillionTokens = 3.0;
 
+  /// Embedding prices by model, per million tokens. Chat model prices change
+  /// too often to hard-code, so those are entered in Settings.
+  static const Map<String, double> embeddingUsdPerMillionByModel = {
+    'text-embedding-3-small': 0.02,
+    'text-embedding-3-large': 0.13,
+    'text-embedding-ada-002': 0.10,
+  };
+
+  /// What a month of usage cost, as far as the known prices allow.
+  ///
+  /// Embedding costs use [embeddingUsdPerMillionByModel] for [embeddingModel].
+  /// Chat costs (reading screenshots, writing replies) need the per-million
+  /// prices from Settings; when either is unset those calls are left out and
+  /// [UsageCost.complete] is false, so the UI never passes off a partial
+  /// figure as the whole bill.
+  static UsageCost costOf(
+    MonthlyUsage usage, {
+    required String embeddingModel,
+    double? chatInputUsdPerMillion,
+    double? chatOutputUsdPerMillion,
+  }) {
+    var usd = 0.0;
+    var complete = true;
+
+    final embedding = usage[UsageKind.embedding];
+    if (embedding.requests > 0) {
+      final price = embeddingUsdPerMillionByModel[embeddingModel];
+      if (price == null) {
+        complete = false;
+      } else {
+        usd += Pricing.usd(embedding.inputTokens, price);
+      }
+    }
+
+    for (final kind in [UsageKind.vision, UsageKind.generation]) {
+      final totals = usage[kind];
+      if (totals.requests == 0) continue;
+      if (chatInputUsdPerMillion == null || chatOutputUsdPerMillion == null) {
+        complete = false;
+        continue;
+      }
+      usd +=
+          Pricing.usd(totals.inputTokens, chatInputUsdPerMillion) +
+          Pricing.usd(totals.outputTokens, chatOutputUsdPerMillion);
+    }
+    return UsageCost(usd: usd, complete: complete);
+  }
+
   static int estimateTokens(String text) =>
       (text.length / charactersPerToken).ceil();
 
@@ -31,4 +81,14 @@ class Pricing {
     if (amount < 0.01) return r'<$0.01';
     return '\$${amount.toStringAsFixed(2)}';
   }
+}
+
+/// The result of [Pricing.costOf].
+class UsageCost {
+  const UsageCost({required this.usd, required this.complete});
+
+  final double usd;
+
+  /// False when some calls could not be priced.
+  final bool complete;
 }

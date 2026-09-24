@@ -77,23 +77,93 @@ class VectorMath {
 
   /// Indices of the [k] vectors most similar to [query], best first.
   ///
-  /// Keeps only the running top-k rather than sorting every candidate, so a
-  /// large memory costs one pass and k comparisons per item.
+  /// Keeps the running top-k in a min-heap, so a memory of n vectors costs one
+  /// pass of dot products plus O(n log k) bookkeeping, rather than re-sorting
+  /// the shortlist every time it changes.
   static List<int> topK(Float32List query, List<Float32List> vectors, int k) {
+    final scored = topKScored(query, vectors, k);
+    return scored.map((e) => e.index).toList(growable: false);
+  }
+
+  /// As [topK], with each index's score.
+  static List<({int index, double score})> topKScored(
+    Float32List query,
+    List<Float32List> vectors,
+    int k,
+  ) {
     if (k < 1 || vectors.isEmpty) return const [];
-    final best = <({int index, double score})>[];
+    final heap = _MinHeap(k);
     for (var i = 0; i < vectors.length; i++) {
-      final score = dot(query, vectors[i]);
-      if (best.length < k) {
-        best.add((index: i, score: score));
-        best.sort((a, b) => b.score.compareTo(a.score));
-      } else if (score > best.last.score) {
-        best
-          ..removeLast()
-          ..add((index: i, score: score))
-          ..sort((a, b) => b.score.compareTo(a.score));
-      }
+      heap.offer(i, dot(query, vectors[i]));
     }
-    return best.map((e) => e.index).toList(growable: false);
+    return heap.drainBestFirst();
+  }
+}
+
+/// A fixed-capacity min-heap of (index, score): the root is the weakest of
+/// the best seen so far, so a better candidate replaces it in O(log k).
+class _MinHeap {
+  _MinHeap(this.capacity);
+
+  final int capacity;
+  final List<int> _index = [];
+  final List<double> _score = [];
+
+  void offer(int index, double score) {
+    if (_index.length < capacity) {
+      _index.add(index);
+      _score.add(score);
+      _siftUp(_index.length - 1);
+    } else if (score > _score[0]) {
+      _index[0] = index;
+      _score[0] = score;
+      _siftDown(0);
+    }
+  }
+
+  void _swap(int a, int b) {
+    final i = _index[a];
+    _index[a] = _index[b];
+    _index[b] = i;
+    final s = _score[a];
+    _score[a] = _score[b];
+    _score[b] = s;
+  }
+
+  void _siftUp(int at) {
+    while (at > 0) {
+      final parent = (at - 1) >> 1;
+      if (_score[at] >= _score[parent]) return;
+      _swap(at, parent);
+      at = parent;
+    }
+  }
+
+  void _siftDown(int at) {
+    final n = _index.length;
+    while (true) {
+      final left = 2 * at + 1;
+      final right = left + 1;
+      var smallest = at;
+      if (left < n && _score[left] < _score[smallest]) smallest = left;
+      if (right < n && _score[right] < _score[smallest]) smallest = right;
+      if (smallest == at) return;
+      _swap(at, smallest);
+      at = smallest;
+    }
+  }
+
+  /// Everything held, best first. Ties keep the earlier index first, which
+  /// matches the order a stable sort would give.
+  List<({int index, double score})> drainBestFirst() {
+    final out = [
+      for (var i = 0; i < _index.length; i++)
+        (index: _index[i], score: _score[i]),
+    ];
+    out.sort((a, b) {
+      final byScore = b.score.compareTo(a.score);
+      return byScore != 0 ? byScore : a.index.compareTo(b.index);
+    });
+    return out;
   }
 }

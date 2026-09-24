@@ -5,7 +5,8 @@ texting style, learned from your own chat exports.
 
 Your chat history stays on the phone. The only things that ever leave it are the
 API calls to OpenAI, made with your own key: the text being embedded during
-training, the screenshot you pick, and the prompt used to write a reply.
+training, the screenshot you pick (or the chat you paste), and the prompt used
+to write a reply.
 
 ---
 
@@ -16,9 +17,15 @@ training, the screenshot you pick, and the prompt used to write a reply.
    never written into the repo, and never put in an error message.
 2. **Train** — import a WhatsApp chat export (`.txt`, or the `.zip` WhatsApp
    makes when the chat has media) with the file picker or the share sheet. Pick
-   which name in the export is you.
-3. **Generate** — pick a screenshot of the conversation you're in. The app reads
-   it, shows you what it read so you can fix any mistakes, then offers three
+   which name in the export is you. Each person you import becomes its own
+   chat; importing a newer export of the same chat only sends the replies it
+   hasn't seen before.
+3. **Choose your voices** — the home screen lists every learned chat with a
+   tick box. Replies are written only from the ticked chats, because how you
+   text a partner is not how you text your boss.
+4. **Generate** — pick a screenshot of the conversation you're in, share one
+   straight into the app from your gallery, or paste the messages as text. The
+   app shows you what it read so you can fix any mistakes, then offers three
    messages. Tap one to copy it.
 
    You can add a note first ("say I'll be late", "ask about the weekend"). The
@@ -28,15 +35,39 @@ training, the screenshot you pick, and the prompt used to write a reply.
    `new topic` so you can tell them apart. The tag reflects what the model
    actually produced: if it returns no topic change, none is invented.
 
+   Each suggestion can then be:
+   - **tweaked** — *Shorter*, *Warmer* or *More like me* rewrites just that one;
+   - **copied a bubble at a time** — if you usually send several short
+     messages in a row, suggestions come split the same way, and the copy
+     button walks through them ("Copy 1 of 3");
+   - **starred** — marks it as something you actually sent, and adds it to
+     that chat's memory as a new example, so the app keeps learning between
+     exports.
+
 ### Training: two modes
 
 **Mode A — style memory (default, instant).** The export is parsed into
 messages, consecutive messages from one sender are merged into turns, and every
 `their turn(s) → my reply` pair becomes an exchange. Each exchange's context is
-embedded once and the vector is stored in a local sqflite database. At
-generation time the current conversation is embedded and cosine similarity
-search (a dot product over unit vectors, done in Dart) finds the closest past
-exchanges. Cheap: embeddings only, a fraction of a cent for a long chat.
+embedded once and the vector is stored in a local sqflite database, under the
+chat it came from, with a content hash so a re-import skips what is already
+there. Cheap: embeddings only, a fraction of a cent for a long chat, and next
+to nothing for a refresh.
+
+At generation time the current conversation is embedded and searched against
+the ticked chats only. Retrieval runs in two stages: a heap-based top-k over
+the similarity scores (a dot product over unit vectors, done in Dart) builds a
+shortlist, then maximal marginal relevance picks from it so the examples are
+varied rather than eight copies of "ok see you then", with a small boost for
+recent exchanges so the model leans towards how you text now.
+
+The import also measures your habits — how long your replies usually are, how
+often you start lowercase, end with a full stop, use emoji, ask questions or
+split a message into several bubbles, and the short phrases you repeat. Those
+numbers go into the prompt, which stops the model drifting towards longer,
+tidier messages than you would ever send. **Your style report** on the home
+screen shows the same numbers per chat, where your chats differ, and how the
+suggestions have fared — worked out on the phone with no API calls.
 
 **Mode B — fine-tune (optional, costs money).** The same exchanges are written
 as chat-format JSONL — a system message describing you texting them, the
@@ -44,7 +75,9 @@ previous turns as `user`/`assistant` messages, your real reply as the
 `assistant` target — uploaded, and used to start an OpenAI fine-tuning job. The
 app shows a cost estimate and requires an explicit confirmation naming the
 amount before anything is uploaded, then polls the job and saves the resulting
-model id. Generation still sends the retrieved real examples as context.
+model id. The dataset is built from the ticked chats, each exchange carrying
+the names from its own chat. Generation still sends the retrieved real
+examples as context.
 
 > **Fine-tuning is being retired by OpenAI.** Since 8 May 2026 organisations
 > that had never fine-tuned before cannot create training jobs, and existing
@@ -68,7 +101,7 @@ model id. Generation still sends the retrieved real examples as context.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 121 tests, no network or device needed
+flutter test          # 220 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -114,7 +147,7 @@ releases.
 ### Optional: the iOS share sheet
 
 Picking a file with the file picker works on both platforms out of the box, and
-so does the Android share sheet. Sharing *into* the app on iOS needs a Share
+so does the Android share sheet — for exports and for screenshots. Sharing *into* the app on iOS needs a Share
 Extension, which has to be created as an Xcode target and cannot be committed as
 plain files:
 
@@ -139,6 +172,10 @@ the bottom → **Export Chat** → **Without Media**.
 
 Then either share it straight into ReplyLikeMe, or save it (Files, Drive,
 Downloads) and pick it with the file picker in the Train screen.
+
+To add another person, export their chat the same way: it becomes a second
+chat on the home screen. To refresh one, export it again — only the new
+replies are sent to be embedded.
 
 **Choose "Without media".** It produces a single `.txt` and is all the app
 needs — media placeholders carry no style information. "Include media" produces
@@ -178,6 +215,7 @@ is learned as one thing you said rather than three.
 | Context turns | 10 | How much conversation is used, both when training and generating. |
 | Retrieved examples | 8 | How many past exchanges the model is shown. |
 | Reply options | 3 | |
+| Chat input / output price | unset | Dollars per million tokens for your chat model, for the spending tally. |
 
 **Model names age.** These defaults were checked against OpenAI's documentation
 in September 2026. Every field is free text, and **Settings → Model list → Load**
@@ -185,8 +223,16 @@ pulls the ids your account can actually use from `GET /v1/models`, so you never
 have to guess. Cheaper and pricier alternatives worth knowing: `gpt-5.6-luna`
 (cost-efficient tier, also vision-capable) and `gpt-6-astra` (flagship).
 
-There is also **Delete all my data**, which removes the style memory, the
-settings and the saved fine-tuned model id, and optionally the API key. It does
+**Spending** shows what the app has used this month and the months before,
+split into fingerprinting, reading screenshots and writing replies. The counts
+come from the token figures OpenAI returns with every response. Embedding is
+priced from a built-in table; chat model prices change too often to ship, so
+enter yours and the tally includes them — until then it is labelled as a
+floor (`≥`), never passed off as the whole bill.
+
+There is also **Delete all my data**, which removes every learned chat, the
+settings, the spending tally, the record of which suggestions you took and the
+saved fine-tuned model id, and optionally the API key. It does
 not touch files or models on OpenAI's side — delete those in your OpenAI
 dashboard.
 
@@ -197,10 +243,14 @@ dashboard.
 - The API key lives only in the platform keystore. It is never logged, never
   committed, and never included in an exception message.
 - Messages, embeddings and settings live only in app-private storage on the
-  device.
-- What is sent to OpenAI: the exchange text being embedded during training, the
-  screenshot you pick, and the prompt (retrieved examples plus the current
-  conversation) when generating. Nothing else, and nothing to anyone else.
+  device. So do the spending tally (token counts only, never text) and the
+  record of which suggestion you copied from each set, which feeds the style
+  report.
+- What is sent to OpenAI: the exchange text being embedded during training (and
+  the conversation behind a reply you star), the screenshot you pick, and the
+  prompt (retrieved examples, your measured habits and the current
+  conversation) when generating or tweaking. Nothing else, and nothing to
+  anyone else.
 - Mode B additionally uploads your messages to OpenAI as a training file. The
   confirmation dialog says so before it happens.
 - `.gitignore` blocks `*.txt`, `*.zip` and `*.jsonl` everywhere except
@@ -215,33 +265,44 @@ dashboard.
 lib/
   main.dart
   models/
-    app_settings.dart        model choices, mode, names, window sizes
+    api_usage.dart           tokens per call, per month
+    app_settings.dart        model choices, mode, names, window sizes, prices
     chat_message.dart        one parsed export line
     chat_turn.dart           merged consecutive messages from one sender
     exchange.dart            their turns -> my reply
     extracted_message.dart   one message read off a screenshot
     finetune_job.dart        fine-tuning job state
     parsed_chat.dart         the result of parsing one export
-    stored_exchange.dart     an exchange plus its embedding
+    reply_suggestion.dart    a suggestion and what it is for
+    stored_exchange.dart     an exchange plus its embedding; a learned chat
+    style_profile.dart       your measured habits, mergeable across chats
+    suggestion_feedback.dart which suggestion you took, and the totals
   services/
     whatsapp_parser.dart     both export layouts -> messages, turns, exchanges
     chat_export_reader.dart  .txt / .zip -> export text
+    pasted_conversation.dart pasted text -> messages
     openai_service.dart      chat, vision, embeddings, files, fine-tuning
     openai_exception.dart    failures, each with a message worth showing
-    vector_math.dart         normalise, dot product, top-k, blob encoding
+    vector_math.dart         normalise, dot product, heap top-k, blob encoding
+    retrieval.dart           shortlist, then varied and recency-aware picks
     exchange_store.dart      the style-memory interface
-    embeddings_store.dart    sqflite implementation
-    style_memory_service.dart  Mode A: build and query
-    reply_generator.dart     prompt construction and the three variants
+    embeddings_store.dart    sqflite implementation, with the v1 upgrade
+    memory_exchange_store.dart  in-memory implementation for tests
+    style_memory_service.dart   Mode A: plan, build, query, save a reply
+    reply_generator.dart     prompt construction, variants and tweaks
     finetune_service.dart    Mode B: JSONL, cost estimate, job polling
     secure_key_store.dart    the API key, and only the API key
     settings_store.dart      everything non-secret
-    share_intake.dart        Android/iOS share sheet
+    usage_store.dart         the monthly spending tally
+    share_intake.dart        Android/iOS share sheet: exports and screenshots
     pricing.dart             token and cost estimates
   state/providers.dart       Riverpod providers and notifiers
-  screens/                   root, setup, home, train, generate, finetune, settings
-  widgets/failure_text.dart  turns any error into a readable sentence
-test/                        121 tests (115 unit, 6 widget)
+  screens/                   root, setup, home, train, generate, finetune,
+                             settings, style report
+    generate/                the transcript, reply cards and other parts
+    settings/                settings widgets and the spending section
+  widgets/                   the paper design kit, dialogs, formatting
+test/                        220 tests (196 unit, 24 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -272,16 +333,22 @@ them.
 flutter test
 ```
 
-121 tests, and no network or device is needed for any of them.
+220 tests, and no network or device is needed for any of them.
 
-115 unit tests cover the parser against synthetic Android and iOS exports, the
-`.txt`/`.zip` reader, the vector maths, the OpenAI client's error mapping and
-retries against a scripted transport, prompt construction, JSONL generation and
-cost estimation, and the style-memory build and retrieval loop.
+The unit tests cover the parser against synthetic Android and iOS exports, the
+`.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap
+top-k checked against a full sort, variety, recency), the style profile and
+its merging, the OpenAI client's error mapping, retries and usage reporting
+against a scripted transport, prompt construction and tweaks, JSONL generation
+and cost estimation, spending and feedback totals, the share sheet, and the
+style-memory build, incremental re-import and retrieval across chats. The
+sqflite store is tested against a real SQLite database through
+`sqflite_common_ffi`, including the upgrade of a single-chat memory from
+before chats existed.
 
-6 widget tests boot the real app with an in-memory style memory and a stubbed
-key: that setup appears when no key is saved, that a malformed key is rejected
-before any request is made, that home reflects an empty and a trained memory
-(including disabling reply suggestions until there is something to imitate),
-that Settings shows the key masked and never in full, and that "delete all my
-data" really empties the store.
+The widget tests boot the real app with an in-memory style memory and a
+stubbed key: setup, key validation, home with no chats, one chat and two
+(ticking and unticking), Settings with the key masked and the spending
+section, "delete all my data", the style report, the layout on a narrow phone
+with system bars and right-to-left names, and the whole Generate flow from a
+paste — bubbles copied one at a time, a tweak, a star, and the feedback log.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
 import '../models/exchange.dart';
 import '../models/parsed_chat.dart';
+import '../models/stored_exchange.dart';
+import '../models/style_profile.dart';
 import '../services/chat_export_reader.dart';
 import '../services/pricing.dart';
 import '../services/share_intake.dart';
@@ -15,6 +18,7 @@ import '../services/whatsapp_parser.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
+import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
 import 'finetune_screen.dart';
 
@@ -50,11 +54,17 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
   String? _theirName;
   List<Exchange> _exchanges = const [];
 
+  /// What building would do with [_exchanges]: which are new, and whether it
+  /// adds to a chat already learned. Worked out whenever the names change.
+  ImportPlan? _plan;
+  int _planGeneration = 0;
+
   bool _reading = false;
   bool _cancelRequested = false;
   StyleMemoryProgress? _progress;
   Object? _error;
-  int? _builtCount;
+  ChatMemory? _built;
+  int? _addedCount;
 
   @override
   void initState() {
@@ -94,7 +104,8 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     setState(() {
       _reading = true;
       _error = null;
-      _builtCount = null;
+      _built = null;
+      _addedCount = null;
     });
     try {
       final text = ChatExportReader.read(bytes, filename: name);
@@ -155,7 +166,35 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         me: me,
         maxContextTurns: settings.contextTurns,
       );
+      _plan = null;
     });
+    unawaited(_replan());
+  }
+
+  /// Checks the export against what is already stored, so the cost shown is
+  /// only for replies not learned before.
+  Future<void> _replan() async {
+    final service = ref.read(styleMemoryServiceProvider);
+    final me = _myName;
+    final them = _theirName;
+    if (service == null || me == null || them == null) return;
+    final generation = ++_planGeneration;
+    try {
+      final settings = await ref.read(settingsProvider.future);
+      final plan = await service.plan(
+        exchanges: _exchanges,
+        myName: me,
+        theirName: them,
+        embeddingModel: settings.embeddingModel,
+        dimensions: settings.embeddingDimensions,
+      );
+      // A newer swap may have landed while this one was reading.
+      if (mounted && generation == _planGeneration) {
+        setState(() => _plan = plan);
+      }
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
   }
 
   void _swapNames() {
@@ -174,6 +213,8 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     if (service == null || me == null || them == null) return;
 
     final settings = await ref.read(settingsProvider.future);
+    final chat = _chat;
+    final plan = _plan;
 
     setState(() {
       _step = _Step.build;
@@ -183,12 +224,16 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     });
 
     try {
-      final stats = await service.build(
+      final built = await service.build(
         exchanges: _exchanges,
         myName: me,
         theirName: them,
         embeddingModel: settings.embeddingModel,
         dimensions: settings.embeddingDimensions,
+        profile: chat == null
+            ? StyleProfile.empty
+            : StyleProfile.measure(chat.turns, me: me),
+        importPlan: plan,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
         },
@@ -199,10 +244,14 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       await ref
           .read(settingsProvider.notifier)
           .edit((current) => current.copyWith(myName: me, theirName: them));
-      ref.invalidate(styleMemoryStatsProvider);
-      ref.invalidate(styleMemoryCountProvider);
+      await ref.read(chatsProvider.notifier).reload();
 
-      if (mounted) setState(() => _builtCount = stats.exchangeCount);
+      if (mounted) {
+        setState(() {
+          _built = built;
+          _addedCount = plan?.toEmbed.length;
+        });
+      }
     } on Object catch (error) {
       if (mounted) {
         setState(() {
@@ -284,9 +333,18 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
 
   Widget _readStep() {
     final chat = _chat!;
-    final service = ref.watch(styleMemoryServiceProvider);
-    final estimate = service?.estimate(_exchanges);
+    final plan = _plan;
+    final estimate = plan?.estimate;
     final noQualifying = _exchanges.isEmpty;
+    final them = bidiIsolate(_theirName ?? 'them');
+    final footnote = plan == null
+        ? 'Checking what it already knows…'
+        : plan.isNewChat
+        ? 'Adds $them as a new chat. Your other chats are not touched.'
+        : plan.replacesExisting
+        ? 'Rebuilds $them from scratch: it was fingerprinted with a '
+              'different model. Only once it finishes.'
+        : 'Adds to what it knows about $them. Nothing is replaced.';
     final layout = switch (chat.format) {
       ExportFormat.android => 'Android export',
       ExportFormat.ios => 'iOS export',
@@ -312,13 +370,24 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
                 children: [
                   FigureRow(
                     'Your replies that qualify',
-                    _grouped(_exchanges.length),
-                    emphasis: true,
+                    grouped(_exchanges.length),
+                    emphasis: plan == null || plan.alreadyKnown == 0,
                   ),
+                  if (plan != null && plan.alreadyKnown > 0) ...[
+                    FigureRow(
+                      'Already learned · skipped',
+                      grouped(plan.alreadyKnown),
+                    ),
+                    FigureRow(
+                      'New to learn',
+                      grouped(plan.toEmbed.length),
+                      emphasis: true,
+                    ),
+                  ],
                   if (estimate != null)
                     FigureRow(
                       'Estimated cost',
-                      '~${_tokens(estimate.estimatedTokens)} tokens · '
+                      '~${compactTokens(estimate.estimatedTokens)} tokens · '
                           '≈ ${Pricing.formatUsd(estimate.estimatedUsd)}',
                     ),
                   const SizedBox(height: 3),
@@ -336,15 +405,15 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
             ),
           const SizedBox(height: 11),
           PaperAction(
-            title: 'Build the memory',
+            title: plan != null && !plan.isNewChat && !plan.replacesExisting
+                ? 'Add to the memory'
+                : 'Build the memory',
             centred: true,
             tone: ActionTone.accent,
-            onTap: noQualifying ? null : _build,
+            onTap: noQualifying || plan == null ? null : _build,
           ),
           const SizedBox(height: 11),
-          const Footnote(
-            'Replaces the memory you have now — but only once it finishes.',
-          ),
+          Footnote(footnote),
         ],
       ),
       children: [
@@ -357,7 +426,10 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SerifTitle('Read it. Does this look like your chat?', size: 30),
+            const SerifTitle(
+              'Read it. Does this look like your chat?',
+              size: 30,
+            ),
             const SizedBox(height: 7),
             Text(
               '${_sourceName ?? "export"} · $layout',
@@ -392,7 +464,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
   // ------------------------------------------------------------------ step 4
 
   Widget _buildStep() {
-    final done = _builtCount;
+    final done = _built;
 
     return PaperScreen(
       bottom: done == null
@@ -425,30 +497,19 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         if (done == null)
           _BuildingCard(
             progress: _progress,
-            total: _exchanges.length,
+            total: _plan?.toEmbed.length ?? _exchanges.length,
             onCancel: () => setState(() => _cancelRequested = true),
           )
         else
-          _BuiltCard(count: done, theirName: _theirName ?? 'them'),
+          _BuiltCard(
+            added: _addedCount ?? done.exchangeCount,
+            total: done.exchangeCount,
+            theirName: done.theirName.isEmpty ? 'them' : done.theirName,
+          ),
       ],
     );
   }
 }
-
-String _grouped(int value) {
-  final digits = value.toString();
-  final out = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
-    out.write(digits[i]);
-  }
-  return out.toString();
-}
-
-/// Token counts run to millions, where the exact figure is noise.
-String _tokens(int tokens) => tokens >= 100000
-    ? '${(tokens / 1000000).toStringAsFixed(1)}M'
-    : _grouped(tokens);
 
 /// What the parser understood, so the user can recognise their own chat.
 class _ReadSummary extends StatelessWidget {
@@ -472,16 +533,13 @@ class _ReadSummary extends StatelessWidget {
           children: [
             Flexible(
               child: _Figure(
-                value: _grouped(chat.textMessageCount),
+                value: grouped(chat.textMessageCount),
                 label: 'messages',
               ),
             ),
             const SizedBox(width: 26),
             Flexible(
-              child: _Figure(
-                value: _grouped(chat.turns.length),
-                label: 'turns',
-              ),
+              child: _Figure(value: grouped(chat.turns.length), label: 'turns'),
             ),
           ],
         ),
@@ -494,16 +552,14 @@ class _ReadSummary extends StatelessWidget {
           child: Column(
             children: [
               for (final entry in chat.senderMessageCounts.entries)
-                FigureRow('${entry.key} sent', _grouped(entry.value)),
+                FigureRow('${entry.key} sent', grouped(entry.value)),
               FigureRow(
                 'Set aside · photos, deleted, system notices',
-                _grouped(
-                  chat.mediaCount + chat.deletedCount + chat.systemCount,
-                ),
+                grouped(chat.mediaCount + chat.deletedCount + chat.systemCount),
               ),
               FigureRow(
                 "Lines it couldn't read",
-                _grouped(chat.unparsedLineCount),
+                grouped(chat.unparsedLineCount),
               ),
             ],
           ),
@@ -607,9 +663,7 @@ class _NameChoice extends StatelessWidget {
       decoration: BoxDecoration(
         color: selected ? Paper.ink : Paper.card,
         borderRadius: Corner.all(Corner.choice),
-        border: selected
-            ? null
-            : Border.all(color: Paper.border, width: 1.5),
+        border: selected ? null : Border.all(color: Paper.border, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,7 +726,7 @@ class _BuildingCard extends StatelessWidget {
                 ),
               ),
               Text(
-                '${_grouped(done)} / ${_grouped(of)}',
+                '${grouped(done)} / ${grouped(of)}',
                 style: Type.numeric(size: 13, color: Paper.amber),
               ),
             ],
@@ -730,9 +784,14 @@ class _BuildingCard extends StatelessWidget {
 }
 
 class _BuiltCard extends StatelessWidget {
-  const _BuiltCard({required this.count, required this.theirName});
+  const _BuiltCard({
+    required this.added,
+    required this.total,
+    required this.theirName,
+  });
 
-  final int count;
+  final int added;
+  final int total;
   final String theirName;
 
   @override
@@ -744,13 +803,16 @@ class _BuiltCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${_grouped(count)} replies learned.',
+          added == 0
+              ? 'Nothing new — it was up to date.'
+              : '${grouped(added)} replies learned.',
           style: Type.display(22, color: Paper.green),
         ),
         const SizedBox(height: 6),
         Text(
-          'It knows how you write to ${bidiIsolate(theirName)}. Screenshot '
-          "a chat and it'll take it from there.",
+          'It knows ${grouped(total)} of the ways you write to '
+          '${bidiIsolate(theirName)}, and the chat is ticked on the home '
+          "screen. Screenshot a chat and it'll take it from there.",
           style: Type.prose(size: 13, color: Paper.greenText, height: 1.45),
         ),
       ],

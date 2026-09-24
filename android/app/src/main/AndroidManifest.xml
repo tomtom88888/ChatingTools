@@ -54,6 +54,14 @@
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
 
+            <!-- Share sheet: a screenshot of a conversation goes straight to
+                 writing a reply. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
             <!-- Opening an export that was already saved to the device. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

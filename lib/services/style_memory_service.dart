@@ -4,10 +4,12 @@ import '../models/chat_turn.dart';
 import '../models/exchange.dart';
 import '../models/parsed_chat.dart';
 import '../models/stored_exchange.dart';
+import '../models/style_profile.dart';
 import 'exchange_store.dart';
 import 'openai_exception.dart';
 import 'openai_service.dart';
 import 'pricing.dart';
+import 'retrieval.dart';
 import 'vector_math.dart';
 import 'whatsapp_parser.dart';
 
@@ -39,17 +41,64 @@ class StyleMemoryEstimate {
   final double estimatedUsd;
 }
 
+/// What importing an export into the memory would do, worked out before
+/// anything is sent.
+class ImportPlan {
+  const ImportPlan({
+    required this.existing,
+    required this.toEmbed,
+    required this.alreadyKnown,
+    required this.replacesExisting,
+    required this.estimate,
+  });
+
+  /// The chat this export adds to, or `null` if it starts a new one.
+  final ChatMemory? existing;
+
+  /// Exchanges not yet in the memory, deduplicated.
+  final List<Exchange> toEmbed;
+
+  /// Exchanges in the export that are already stored and won't be re-sent.
+  final int alreadyKnown;
+
+  /// True when the existing chat was embedded with a different model, so it
+  /// has to be rebuilt from scratch.
+  final bool replacesExisting;
+
+  /// The cost of embedding [toEmbed] — only the new part.
+  final StyleMemoryEstimate estimate;
+
+  bool get isNewChat => existing == null;
+}
+
+/// The examples retrieved for one generation.
+class RetrievedExamples {
+  const RetrievedExamples({required this.examples, this.skipped = const []});
+
+  final List<ScoredExchange> examples;
+
+  /// Switched-on chats that could not be searched because they were built
+  /// with a different embedding model or size. Retraining them fixes it.
+  final List<ChatMemory> skipped;
+}
+
 /// Mode A: builds and queries the local style memory.
 ///
-/// Building embeds every `their turn(s) -> my reply` exchange and stores the
-/// vectors on the device. Querying embeds the current conversation and returns
-/// the closest past exchanges. Nothing but the text being embedded leaves the
-/// phone.
+/// Each imported export becomes (or adds to) one chat. Building embeds every
+/// `their turn(s) -> my reply` exchange that isn't already stored and keeps
+/// the vectors on the device. Querying embeds the current conversation and
+/// returns close — and varied — past exchanges from the chats that are
+/// switched on. Nothing but the text being embedded leaves the phone.
 class StyleMemoryService {
-  StyleMemoryService({required this.openai, required this.store});
+  StyleMemoryService({
+    required this.openai,
+    required this.store,
+    this.retrieval = const Retrieval(),
+  });
 
   final OpenAiService openai;
   final ExchangeStore store;
+  final Retrieval retrieval;
 
   /// Exchanges per embeddings request. Large enough to keep the round-trip
   /// count low, small enough to stay well inside the request size limit.
@@ -81,17 +130,67 @@ class StyleMemoryService {
     maxContextTurns: contextTurns,
   );
 
-  /// Embeds every exchange and replaces the stored memory.
-  ///
-  /// Reports progress after each batch. If [isCancelled] starts returning true
-  /// the build stops and the existing memory is left untouched, because
-  /// [ExchangeStore.replaceAll] is only called once everything is embedded.
-  Future<StyleMemoryStats> build({
+  /// The stored chat an export between [myName] and [theirName] belongs to.
+  Future<ChatMemory?> findChat({
+    required String myName,
+    required String theirName,
+  }) async {
+    for (final chat in await store.chats()) {
+      if (chat.myName == myName && chat.theirName == theirName) return chat;
+    }
+    return null;
+  }
+
+  /// Works out what importing [exchanges] would embed and cost.
+  Future<ImportPlan> plan({
     required List<Exchange> exchanges,
     required String myName,
     required String theirName,
     required String embeddingModel,
     required int dimensions,
+  }) async {
+    final existing = await findChat(myName: myName, theirName: theirName);
+    final replaces =
+        existing != null && !existing.matches(embeddingModel, dimensions);
+    final known = existing == null || replaces
+        ? <String>{}
+        : await store.hashesFor(existing.id);
+
+    final seen = <String>{};
+    final fresh = <Exchange>[];
+    var alreadyKnown = 0;
+    for (final exchange in exchanges) {
+      final hash = StoredExchange.hashOf(exchange);
+      if (known.contains(hash)) {
+        alreadyKnown++;
+        continue;
+      }
+      // The same exchange twice in one export would only weight it double.
+      if (seen.add(hash)) fresh.add(exchange);
+    }
+    return ImportPlan(
+      existing: existing,
+      toEmbed: fresh,
+      alreadyKnown: alreadyKnown,
+      replacesExisting: replaces,
+      estimate: estimate(fresh),
+    );
+  }
+
+  /// Embeds the new exchanges in an export and adds them to that chat's
+  /// memory, creating the chat if it is new.
+  ///
+  /// Reports progress after each batch. If [isCancelled] starts returning true
+  /// the build stops and the stored memory is left untouched, because nothing
+  /// is written until everything is embedded.
+  Future<ChatMemory> build({
+    required List<Exchange> exchanges,
+    required String myName,
+    required String theirName,
+    required String embeddingModel,
+    required int dimensions,
+    StyleProfile profile = StyleProfile.empty,
+    ImportPlan? importPlan,
     void Function(StyleMemoryProgress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -104,21 +203,31 @@ class StyleMemoryService {
       );
     }
 
+    final planned =
+        importPlan ??
+        await plan(
+          exchanges: exchanges,
+          myName: myName,
+          theirName: theirName,
+          embeddingModel: embeddingModel,
+          dimensions: dimensions,
+        );
+    final todo = planned.toEmbed;
+
     final stored = <StoredExchange>[];
+    final stage = todo.isEmpty
+        ? 'Nothing new to embed'
+        : 'Embedding ${todo.length} new exchanges';
     onProgress?.call(
-      StyleMemoryProgress(
-        embedded: 0,
-        total: exchanges.length,
-        stage: 'Embedding ${exchanges.length} exchanges',
-      ),
+      StyleMemoryProgress(embedded: 0, total: todo.length, stage: stage),
     );
 
-    for (var start = 0; start < exchanges.length; start += embedBatchSize) {
+    for (var start = 0; start < todo.length; start += embedBatchSize) {
       if (isCancelled?.call() ?? false) {
         throw const StyleMemoryCancelled();
       }
-      final end = (start + embedBatchSize).clamp(0, exchanges.length);
-      final batch = exchanges.sublist(start, end);
+      final end = (start + embedBatchSize).clamp(0, todo.length);
+      final batch = todo.sublist(start, end);
       final vectors = await openai.embed(
         batch.map((e) => _embedText(e.contextText)).toList(growable: false),
         model: embeddingModel,
@@ -133,58 +242,148 @@ class StyleMemoryService {
             context: exchange.context,
             contextText: exchange.contextText,
             replyText: exchange.replyText,
-            vector: VectorMath.normalise(vectors[i]),
+            vector: _unit(vectors[i]),
             timestamp: exchange.timestamp,
+            hash: StoredExchange.hashOf(exchange),
           ),
         );
       }
       onProgress?.call(
         StyleMemoryProgress(
           embedded: stored.length,
-          total: exchanges.length,
-          stage: 'Embedding ${exchanges.length} exchanges',
+          total: todo.length,
+          stage: stage,
         ),
       );
     }
+    if (isCancelled?.call() ?? false) throw const StyleMemoryCancelled();
 
-    final stats = StyleMemoryStats(
-      exchangeCount: stored.length,
-      embeddingModel: embeddingModel,
-      dimensions: stored.first.vector.length,
-      myName: myName,
-      theirName: theirName,
-      builtAt: DateTime.now(),
-    );
     onProgress?.call(
       StyleMemoryProgress(
         embedded: stored.length,
-        total: exchanges.length,
+        total: todo.length,
         stage: 'Saving to this device',
       ),
     );
-    await store.replaceAll(stored, stats: stats);
-    return stats;
+    final base = planned.existing;
+    final chat =
+        (base ??
+                ChatMemory(
+                  myName: myName,
+                  theirName: theirName,
+                  embeddingModel: embeddingModel,
+                  dimensions: dimensions,
+                  builtAt: DateTime.now(),
+                ))
+            .copyWith(
+              embeddingModel: embeddingModel,
+              dimensions: dimensions,
+              builtAt: DateTime.now(),
+              // Re-importing a chat you had switched off is a strong hint you
+              // want it back.
+              enabled: true,
+              profile: profile.isEmpty ? base?.profile : profile,
+            );
+    return store.saveChat(
+      chat,
+      added: stored,
+      replaceExisting: planned.replacesExisting,
+    );
   }
 
-  /// The [limit] past exchanges most similar to the conversation so far.
-  Future<List<ScoredExchange>> retrieve({
+  /// Up to [limit] past exchanges like the conversation so far, drawn from
+  /// [chatIds] (every switched-on chat when omitted).
+  Future<RetrievedExamples> retrieve({
     required List<ChatTurn> context,
     required String embeddingModel,
     required int dimensions,
     required int limit,
+    Set<int>? chatIds,
   }) async {
-    if (await store.count() == 0) return const [];
-    final queryText = _embedText(Exchange.renderContext(context));
-    if (queryText.trim().isEmpty) return const [];
+    final chats = await store.chats();
+    final wanted = chats.where(
+      (c) => chatIds == null ? c.enabled : chatIds.contains(c.id),
+    );
+    final usable = <int>{};
+    final skipped = <ChatMemory>[];
+    for (final chat in wanted) {
+      if (chat.isEmpty) continue;
+      if (chat.matches(embeddingModel, dimensions)) {
+        usable.add(chat.id);
+      } else {
+        skipped.add(chat);
+      }
+    }
+    if (usable.isEmpty) {
+      return RetrievedExamples(examples: const [], skipped: skipped);
+    }
 
+    final queryText = _embedText(Exchange.renderContext(context));
+    if (queryText.trim().isEmpty) {
+      return RetrievedExamples(examples: const [], skipped: skipped);
+    }
+
+    final candidates = await store.all(chatIds: usable);
+    if (candidates.isEmpty) {
+      return RetrievedExamples(examples: const [], skipped: skipped);
+    }
     final vectors = await openai.embed(
       [queryText],
       model: embeddingModel,
       dimensions: dimensions,
     );
-    final Float32List query = VectorMath.normalise(vectors.first);
-    return store.mostSimilar(query, limit: limit);
+    final Float32List query = _unit(vectors.first);
+    return RetrievedExamples(
+      examples: retrieval.select(query, candidates, limit: limit),
+      skipped: skipped,
+    );
   }
+
+  /// Stores a suggestion you actually sent as a new example in [chat], so the
+  /// memory keeps learning between exports.
+  Future<ChatMemory> saveReply({
+    required ChatMemory chat,
+    required List<ChatTurn> conversation,
+    required String reply,
+    required int contextTurns,
+  }) async {
+    final text = reply.trim();
+    if (text.isEmpty || conversation.isEmpty) {
+      throw const OpenAiException(
+        OpenAiErrorKind.badRequest,
+        'There is nothing to save yet.',
+      );
+    }
+    final context = conversation.length > contextTurns
+        ? conversation.sublist(conversation.length - contextTurns)
+        : conversation;
+    final contextText = Exchange.renderContext(context);
+    final hash = StoredExchange.contentHash(contextText, text);
+    if ((await store.hashesFor(chat.id)).contains(hash)) return chat;
+
+    final vectors = await openai.embed(
+      [_embedText(contextText)],
+      model: chat.embeddingModel,
+      dimensions: chat.dimensions,
+    );
+    return store.saveChat(
+      chat,
+      added: [
+        StoredExchange(
+          id: -1,
+          context: context,
+          contextText: contextText,
+          replyText: text,
+          vector: _unit(vectors.first),
+          timestamp: DateTime.now(),
+          hash: hash,
+          source: ExchangeSource.saved,
+        ),
+      ],
+    );
+  }
+
+  static Float32List _unit(List<double> values) => VectorMath.normalise(values);
 
   /// Keeps the tail of a long context: the most recent turns are what a reply
   /// actually responds to.

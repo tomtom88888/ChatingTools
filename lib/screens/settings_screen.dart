@@ -6,8 +6,11 @@ import '../services/secure_key_store.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
+import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
 import 'finetune_screen.dart';
+import 'settings/settings_widgets.dart';
+import 'settings/spending_section.dart';
 
 /// The design document does not draw Settings, so this follows its language:
 /// warm paper, mono section labels, serif only for the page title.
@@ -45,7 +48,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final controller = TextEditingController();
     final key = await showDialog<String>(
       context: context,
-      builder: (context) => _PaperDialog(
+      builder: (context) => PaperDialog(
         title: 'Replace API key',
         confirmLabel: 'Save',
         onConfirm: () => Navigator.of(context).pop(controller.text),
@@ -56,7 +59,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           autocorrect: false,
           enableSuggestions: false,
           style: Type.numeric(size: 14, weight: FontWeight.w400),
-          decoration: _fieldDecoration('sk-…'),
+          decoration: paperFieldDecoration('sk-…'),
         ),
       ),
     );
@@ -79,7 +82,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _deleteEverything() async {
     final choice = await showDialog<_WipeChoice>(
       context: context,
-      builder: (context) => _PaperDialog(
+      builder: (context) => PaperDialog(
         title: 'Delete all my data?',
         confirmLabel: 'Delete everything',
         destructive: true,
@@ -87,7 +90,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         extraLabel: 'Delete, keep my key',
         onExtra: () => Navigator.of(context).pop(_WipeChoice.keepKey),
         child: Text(
-          'This removes the style memory, your settings, and the record of any '
+          'This removes every learned chat, your settings, the spending tally, '
+          'the record of which suggestions you took, and the record of any '
           'fine-tuned model — everything this app keeps on the phone. It '
           'cannot be undone.\n\nFiles already uploaded to OpenAI, and any model '
           'trained there, are not touched: delete those in your OpenAI '
@@ -117,6 +121,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final settingsValue = ref.watch(settingsProvider);
     final apiKey = ref.watch(apiKeyProvider).value;
+    final chatCount = ref.watch(chatsProvider).value?.length ?? 0;
 
     return settingsValue.when(
       loading: () => const Scaffold(
@@ -131,7 +136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       error: (error, _) => PaperScreen(
         children: [
-          _Back(onTap: () => Navigator.of(context).pop()),
+          SettingsBack(onTap: () => Navigator.of(context).pop()),
           FailureNotice(
             error: error,
             onRetry: () => ref.invalidate(settingsProvider),
@@ -141,7 +146,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       data: (settings) => PaperScreen(
         gap: 14,
         children: [
-          _Back(onTap: () => Navigator.of(context).pop()),
+          SettingsBack(onTap: () => Navigator.of(context).pop()),
           const SerifTitle('Settings', size: 34),
 
           const MonoLabel('OpenAI account'),
@@ -150,7 +155,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _TapRow(
+                TapRow(
                   label: 'API key',
                   value: apiKey == null
                       ? 'Not saved'
@@ -159,7 +164,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   actionLabel: 'Replace',
                   onTap: _replaceKey,
                 ),
-                _TapRow(
+                TapRow(
                   label: 'Models your account can use',
                   value: _accountModels == null
                       ? 'Not loaded — the fields below are suggestions'
@@ -174,29 +179,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const MonoLabel('Models'),
-          _ModelField(
+          ModelField(
             label: 'Reads screenshots',
             value: settings.visionModel,
             suggestions: _suggest(AppSettings.suggestedChatModels),
             onChanged: (v) => _edit((s) => s.copyWith(visionModel: v)),
           ),
-          _ModelField(
+          ModelField(
             label: 'Writes replies',
             value: settings.generationModel,
             suggestions: _suggest(AppSettings.suggestedChatModels),
             onChanged: (v) => _edit((s) => s.copyWith(generationModel: v)),
           ),
-          _ModelField(
+          ModelField(
             label: 'Fingerprints the memory',
             value: settings.embeddingModel,
             suggestions: _suggest(AppSettings.suggestedEmbeddingModels),
-            helper: 'Changing this makes the memory you have unusable — '
+            helper:
+                'Changing this makes the memory you have unusable — '
                 'retrain afterwards.',
             onChanged: (v) => _edit((s) => s.copyWith(embeddingModel: v)),
           ),
-          _Stepper(
+          NumberStepper(
             label: 'Fingerprint size',
-            helper: 'Shorter is a smaller, faster memory. Retrain after '
+            helper:
+                'Shorter is a smaller, faster memory. Retrain after '
                 'changing.',
             value: settings.embeddingDimensions,
             min: 64,
@@ -206,14 +213,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const MonoLabel('How replies are made'),
-          _ModeChoice(
+          ModeChoice(
             settings: settings,
             onPick: (mode) => _edit((s) => s.copyWith(mode: mode)),
             onOpenFineTune: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const FineTuneScreen()),
             ),
           ),
-          _Stepper(
+          NumberStepper(
             label: 'Context turns',
             helper: 'How much conversation is used, training and generating.',
             value: settings.contextTurns,
@@ -221,15 +228,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             max: 40,
             onChanged: (v) => _edit((s) => s.copyWith(contextTurns: v)),
           ),
-          _Stepper(
+          NumberStepper(
             label: 'Retrieved examples',
             helper: 'How many past exchanges the model is shown.',
             value: settings.retrievedExampleCount,
             min: 1,
             max: 30,
-            onChanged: (v) => _edit((s) => s.copyWith(retrievedExampleCount: v)),
+            onChanged: (v) =>
+                _edit((s) => s.copyWith(retrievedExampleCount: v)),
           ),
-          _Stepper(
+          NumberStepper(
             label: 'Reply options',
             value: settings.variantCount,
             min: 1,
@@ -238,33 +246,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const MonoLabel('The prompt'),
-          _SystemPromptField(
+          SystemPromptField(
             value: settings.effectiveSystemPrompt,
             edited: settings.hasCustomSystemPrompt,
             onChanged: (v) => _edit((s) => s.copyWith(systemPrompt: v)),
             onReset: () => _edit((s) => s.copyWith(resetSystemPrompt: true)),
           ),
 
-          const MonoLabel('Names in the export'),
+          const MonoLabel('Your chats'),
           PaperCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 StackedRow(
-                  label: 'You',
+                  label: 'You, in the exports',
                   value: settings.myName.isEmpty
                       ? 'Set when you import an export'
                       : settings.myName,
                 ),
                 StackedRow(
-                  label: 'Them',
-                  value: settings.theirName.isEmpty
-                      ? 'Set when you import an export'
-                      : settings.theirName,
+                  label: 'Chats learned',
+                  value: switch (chatCount) {
+                    0 => 'None yet',
+                    1 => 'One — tick or untick it on the home screen',
+                    _ => '$chatCount — tick which to use on the home screen',
+                  },
                   last: true,
                 ),
               ],
+            ),
+          ),
+
+          const MonoLabel('Spending'),
+          SpendingSection(
+            settings: settings,
+            onPrices: (input, output) => _edit(
+              (s) => input == null || output == null
+                  ? s.copyWith(clearChatPrices: true)
+                  : s.copyWith(
+                      chatInputUsdPerMillion: input,
+                      chatOutputUsdPerMillion: output,
+                    ),
             ),
           ),
 
@@ -284,8 +307,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Style memory, settings, and the saved fine-tuned model '
-                    'id. Your key can stay.',
+                    'Every chat learned, settings, spending and the saved '
+                    'fine-tuned model id. Your key can stay.',
                     style: Type.prose(
                       size: 13,
                       color: Paper.errorText,
@@ -313,550 +336,3 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 enum _WipeChoice { keepKey, everything }
-
-InputDecoration _fieldDecoration(String hint) => InputDecoration(
-  isDense: true,
-  filled: true,
-  fillColor: Paper.card,
-  hintText: hint,
-  hintStyle: Type.numeric(
-    size: 14,
-    color: Paper.placeholder,
-    weight: FontWeight.w400,
-  ),
-  contentPadding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-  border: OutlineInputBorder(
-    borderRadius: Corner.all(Corner.small),
-    borderSide: const BorderSide(color: Paper.border, width: 1.5),
-  ),
-  enabledBorder: OutlineInputBorder(
-    borderRadius: Corner.all(Corner.small),
-    borderSide: const BorderSide(color: Paper.border, width: 1.5),
-  ),
-  focusedBorder: OutlineInputBorder(
-    borderRadius: Corner.all(Corner.small),
-    borderSide: const BorderSide(color: Paper.accent, width: 1.5),
-  ),
-);
-
-class _Back extends StatelessWidget {
-  const _Back({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerLeft,
-    child: GestureDetector(
-      onTap: onTap,
-      child: const Text(
-        '←',
-        style: TextStyle(fontSize: 19, color: Paper.secondary),
-      ),
-    ),
-  );
-}
-
-class _TapRow extends StatelessWidget {
-  const _TapRow({
-    required this.label,
-    required this.value,
-    required this.onTap,
-    this.actionLabel,
-    this.mono = false,
-    this.busy = false,
-    this.last = false,
-  });
-
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-  final String? actionLabel;
-  final bool mono;
-  final bool busy;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    decoration: BoxDecoration(
-      border: last
-          ? null
-          : const Border(bottom: BorderSide(color: Paper.divider)),
-    ),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Type.prose(size: 12, color: Paper.tertiary, height: 1.3),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                style: mono
-                    ? Type.numeric(size: 13, weight: FontWeight.w400)
-                    : Type.strong(size: 14, height: 1.35),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        if (busy)
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-        else if (actionLabel != null)
-          GestureDetector(
-            onTap: onTap,
-            child: Text(
-              actionLabel!,
-              style: Type.strong(size: 13, color: Paper.accent),
-            ),
-          ),
-      ],
-    ),
-  );
-}
-
-/// A model id as free text with a menu of suggestions: any id can be typed,
-/// because this list ages faster than the app ships.
-class _ModelField extends StatefulWidget {
-  const _ModelField({
-    required this.label,
-    required this.value,
-    required this.suggestions,
-    required this.onChanged,
-    this.helper,
-  });
-
-  final String label;
-  final String value;
-  final List<String> suggestions;
-  final String? helper;
-  final ValueChanged<String> onChanged;
-
-  @override
-  State<_ModelField> createState() => _ModelFieldState();
-}
-
-class _ModelFieldState extends State<_ModelField> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.value,
-  );
-
-  @override
-  void didUpdateWidget(_ModelField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.value != oldWidget.value && widget.value != _controller.text) {
-      _controller.text = widget.value;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _commit() {
-    final value = _controller.text.trim();
-    if (value.isEmpty) {
-      _controller.text = widget.value;
-      return;
-    }
-    if (value != widget.value) widget.onChanged(value);
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(widget.label, style: Type.strong(size: 13, height: 1.35)),
-      const SizedBox(height: 7),
-      TextField(
-        controller: _controller,
-        autocorrect: false,
-        style: Type.numeric(size: 14, weight: FontWeight.w400),
-        decoration: _fieldDecoration('model id').copyWith(
-          suffixIcon: PopupMenuButton<String>(
-            icon: const Icon(
-              Icons.expand_more,
-              size: 20,
-              color: Paper.tertiary,
-            ),
-            tooltip: 'Suggestions',
-            color: Paper.bg,
-            itemBuilder: (context) => [
-              for (final suggestion in widget.suggestions.take(60))
-                PopupMenuItem(
-                  value: suggestion,
-                  child: Text(
-                    suggestion,
-                    style: Type.numeric(size: 13, weight: FontWeight.w400),
-                  ),
-                ),
-            ],
-            onSelected: (value) {
-              _controller.text = value;
-              widget.onChanged(value);
-            },
-          ),
-        ),
-        onEditingComplete: _commit,
-        onTapOutside: (_) => _commit(),
-      ),
-      if (widget.helper != null) ...[
-        const SizedBox(height: 6),
-        Text(
-          widget.helper!,
-          style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
-        ),
-      ],
-    ],
-  );
-}
-
-class _Stepper extends StatelessWidget {
-  const _Stepper({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.onChanged,
-    this.step = 1,
-    this.helper,
-  });
-
-  final String label;
-  final int value;
-  final int min;
-  final int max;
-  final int step;
-  final String? helper;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) => PaperCard(
-    padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Type.strong(size: 14, height: 1.35)),
-              if (helper != null) ...[
-                const SizedBox(height: 3),
-                Text(
-                  helper!,
-                  style: Type.prose(
-                    size: 12.5,
-                    color: Paper.tertiary,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        _Nudge(
-          icon: Icons.remove,
-          onTap: value - step < min ? null : () => onChanged(value - step),
-        ),
-        SizedBox(
-          width: 44,
-          child: Text(
-            '$value',
-            textAlign: TextAlign.center,
-            style: Type.numeric(size: 15),
-          ),
-        ),
-        _Nudge(
-          icon: Icons.add,
-          onTap: value + step > max ? null : () => onChanged(value + step),
-        ),
-      ],
-    ),
-  );
-}
-
-class _Nudge extends StatelessWidget {
-  const _Nudge({required this.icon, required this.onTap});
-
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: onTap == null ? Paper.bg : Paper.panel,
-        borderRadius: Corner.all(Corner.pill),
-      ),
-      child: Icon(
-        icon,
-        size: 17,
-        color: onTap == null ? Paper.placeholder : Paper.ink,
-      ),
-    ),
-  );
-}
-
-class _ModeChoice extends StatelessWidget {
-  const _ModeChoice({
-    required this.settings,
-    required this.onPick,
-    required this.onOpenFineTune,
-  });
-
-  final AppSettings settings;
-  final ValueChanged<TrainingMode> onPick;
-  final VoidCallback onOpenFineTune;
-
-  @override
-  Widget build(BuildContext context) {
-    final explanation = switch (settings.mode) {
-      TrainingMode.styleMemory =>
-        'Retrieves your most similar past replies and prompts a base model '
-            'with them. Instant, and costs only embeddings.',
-      TrainingMode.fineTune => settings.hasFineTunedModel
-          ? 'Generating with ${settings.fineTunedModel}, still using your '
-                'retrieved examples as context.'
-          : 'No fine-tuned model exists yet, so style memory is used until '
-                'one does.',
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            for (final mode in TrainingMode.values) ...[
-              if (mode != TrainingMode.values.first) const SizedBox(width: 10),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => onPick(mode),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    decoration: BoxDecoration(
-                      color: settings.mode == mode ? Paper.ink : Paper.card,
-                      borderRadius: Corner.all(Corner.small),
-                      border: settings.mode == mode
-                          ? null
-                          : Border.all(color: Paper.border, width: 1.5),
-                    ),
-                    child: Center(
-                      child: Text(
-                        mode == TrainingMode.styleMemory
-                            ? 'Style memory'
-                            : 'Fine-tuned',
-                        style: Type.strong(
-                          size: 14,
-                          color: settings.mode == mode
-                              ? Paper.onInk
-                              : Paper.ink,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          explanation,
-          style: Type.prose(size: 12.5, color: Paper.tertiary, height: 1.45),
-        ),
-        const SizedBox(height: 10),
-        PaperAction(
-          title: 'Fine-tuning',
-          subtitle: 'Costs money, and OpenAI is retiring it',
-          tone: ActionTone.outline,
-          onTap: onOpenFineTune,
-        ),
-      ],
-    );
-  }
-}
-
-/// A dialog in the design's language rather than Material's.
-class _PaperDialog extends StatelessWidget {
-  const _PaperDialog({
-    required this.title,
-    required this.child,
-    required this.confirmLabel,
-    required this.onConfirm,
-    this.destructive = false,
-    this.extraLabel,
-    this.onExtra,
-  });
-
-  final String title;
-  final Widget child;
-  final String confirmLabel;
-  final VoidCallback onConfirm;
-  final bool destructive;
-  final String? extraLabel;
-  final VoidCallback? onExtra;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    backgroundColor: Paper.bg,
-    surfaceTintColor: Paper.bg,
-    shape: RoundedRectangleBorder(borderRadius: Corner.all(Corner.card)),
-    title: Text(title, style: Type.strong(size: 17)),
-    content: child,
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: Text(
-          'Cancel',
-          style: Type.strong(size: 14, color: Paper.secondary),
-        ),
-      ),
-      if (extraLabel != null && onExtra != null)
-        TextButton(
-          onPressed: onExtra,
-          child: Text(
-            extraLabel!,
-            style: Type.strong(size: 14, color: Paper.secondary),
-          ),
-        ),
-      TextButton(
-        onPressed: onConfirm,
-        child: Text(
-          confirmLabel,
-          style: Type.strong(
-            size: 14,
-            color: destructive ? Paper.errorText : Paper.accent,
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-/// The generating model's instructions, editable, with a way back.
-///
-/// This is the bluntest control over how replies read, so it is shown in full
-/// rather than hidden behind a dialog, and the reset is only offered once the
-/// text differs from the default \u2014 there is nothing to undo otherwise.
-class _SystemPromptField extends StatefulWidget {
-  const _SystemPromptField({
-    required this.value,
-    required this.edited,
-    required this.onChanged,
-    required this.onReset,
-  });
-
-  final String value;
-  final bool edited;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onReset;
-
-  @override
-  State<_SystemPromptField> createState() => _SystemPromptFieldState();
-}
-
-class _SystemPromptFieldState extends State<_SystemPromptField> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.value,
-  );
-
-  // Enter inserts a newline in a multi-line field, so onEditingComplete never
-  // fires and tapping outside is not the only way a person leaves it: they
-  // also scroll away, dismiss the keyboard, or go back. Committing when focus
-  // is lost covers all of those.
-  late final FocusNode _focus = FocusNode()..addListener(_onFocusChanged);
-
-  void _onFocusChanged() {
-    if (!_focus.hasFocus) _commit();
-  }
-
-  @override
-  void didUpdateWidget(_SystemPromptField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // A reset changes the value from outside; adopt it.
-    if (widget.value != oldWidget.value && widget.value != _controller.text) {
-      _controller.text = widget.value;
-    }
-  }
-
-  @override
-  void dispose() {
-    _focus
-      ..removeListener(_onFocusChanged)
-      ..dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _commit() {
-    final next = _controller.text;
-    if (next.trim().isEmpty) {
-      // An empty prompt would leave the model with no instructions at all.
-      widget.onReset();
-      return;
-    }
-    if (next != widget.value) widget.onChanged(next);
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              'What the model is told before your examples',
-              style: Type.strong(size: 13, height: 1.35),
-            ),
-          ),
-          if (widget.edited)
-            GestureDetector(
-              onTap: () {
-                _controller.text = AppSettings.defaultSystemPrompt;
-                widget.onReset();
-              },
-              child: Text(
-                'Reset to default',
-                style: Type.strong(size: 13, color: Paper.accent),
-              ),
-            ),
-        ],
-      ),
-      const SizedBox(height: 7),
-      TextField(
-        controller: _controller,
-        focusNode: _focus,
-        maxLines: null,
-        minLines: 6,
-        textCapitalization: TextCapitalization.sentences,
-        style: Type.prose(size: 13, color: Paper.ink, height: 1.5),
-        decoration: _fieldDecoration('The instructions the model follows'),
-        onTapOutside: (_) => _commit(),
-        onEditingComplete: _commit,
-      ),
-      const SizedBox(height: 6),
-      Text(
-        '{me} and {them} are filled in with the names from your export, so the '
-        'prompt keeps working if you retrain on a different chat. This does '
-        'not affect a fine-tuned model, which carries the prompt it was '
-        'trained with.',
-        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
-      ),
-    ],
-  );
-}

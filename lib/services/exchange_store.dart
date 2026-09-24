@@ -1,30 +1,49 @@
-import 'dart:typed_data';
-
 import '../models/stored_exchange.dart';
+import '../models/suggestion_feedback.dart';
 
-/// The local style memory.
+/// The local style memory: one or more learned chats, their exchanges, and
+/// the record of which suggestions you took.
 ///
 /// An interface rather than a concrete class so the services above it can be
 /// unit-tested without a device database.
 abstract interface class ExchangeStore {
-  /// Replaces the whole memory in one transaction. Training is all-or-nothing:
-  /// a half-embedded import would silently skew every retrieval.
-  Future<void> replaceAll(
-    List<StoredExchange> exchanges, {
-    required StyleMemoryStats stats,
+  /// Every learned chat, oldest first.
+  Future<List<ChatMemory>> chats();
+
+  /// Creates or updates [chat] and adds [added] to it, in one transaction.
+  ///
+  /// With [replaceExisting] the chat's current exchanges are dropped first —
+  /// used when they were embedded with a different model and can no longer be
+  /// compared. Training is all-or-nothing: a half-embedded import would
+  /// silently skew every retrieval. Returns the chat as stored, with its id
+  /// and counts filled in.
+  Future<ChatMemory> saveChat(
+    ChatMemory chat, {
+    List<StoredExchange> added = const [],
+    bool replaceExisting = false,
   });
 
-  /// What the current memory was built from, or `null` if there isn't one.
-  Future<StyleMemoryStats?> stats();
+  /// The content hashes already stored for a chat, so a re-import only embeds
+  /// what is new.
+  Future<Set<String>> hashesFor(int chatId);
 
-  Future<int> count();
+  /// Turns a chat on or off for generation.
+  Future<void> setChatEnabled(int chatId, {required bool enabled});
 
-  /// The [limit] stored exchanges whose context is closest to [query].
-  Future<List<ScoredExchange>> mostSimilar(Float32List query, {int limit = 8});
+  /// Removes one chat and everything learned from it.
+  Future<void> deleteChat(int chatId);
 
-  /// Everything, oldest first — used to build the fine-tuning dataset.
-  Future<List<StoredExchange>> all();
+  /// Exchanges stored, in the given chats or in all of them.
+  Future<int> count({Set<int>? chatIds});
 
-  /// Wipes the memory and its metadata.
+  /// Exchanges in the given chats (or all of them), oldest first.
+  Future<List<StoredExchange>> all({Set<int>? chatIds});
+
+  Future<void> recordFeedback(SuggestionFeedback feedback);
+
+  /// Recorded feedback, newest first.
+  Future<List<SuggestionFeedback>> feedback();
+
+  /// Wipes every chat, exchange and feedback record.
   Future<void> deleteEverything();
 }
