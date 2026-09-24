@@ -140,9 +140,10 @@ If you would rather not install the Android SDK, the
 run → Artifacts → replylikeme-apk**.
 
 Run that workflow by hand (**Actions → Build APK → Run workflow**) and it also
-publishes the APK as a prerelease, which gives a plain download link instead of
-an artifact zip that needs a logged-in browser. Ordinary pushes never create
-releases.
+publishes the APK as a GitHub release tagged `v<version>-<commit>`, which gives
+a plain download link instead of an artifact zip that needs a logged-in
+browser. It is a prerelease unless you untick **prerelease** when starting the
+run. Ordinary pushes never create releases.
 
 ### Optional: the iOS share sheet
 

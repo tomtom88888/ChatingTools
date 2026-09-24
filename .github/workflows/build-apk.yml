@@ -7,6 +7,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Publish as a prerelease rather than a full release
+        type: boolean
+        default: true
 
 jobs:
   apk:
@@ -61,21 +66,24 @@ jobs:
       # hand ("Run workflow" in the Actions tab) also publishes the APK as a
       # prerelease, which gives a plain download link. Ordinary pushes skip
       # this, so they never create releases.
-      - name: Publish the APK as a prerelease
+      - name: Publish the APK as a release
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="apk-${GITHUB_SHA::7}"
+          version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
+          tag="v${version}-${GITHUB_SHA::7}"
+          flags=()
+          if [ "${{ inputs.prerelease }}" != "false" ]; then flags+=(--prerelease); fi
           mapfile -t apks < <(ls build/app/outputs/flutter-apk/*.apk)
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${apks[@]}" --clobber
           else
             gh release create "$tag" "${apks[@]}" \
               --target "$GITHUB_SHA" \
-              --title "ReplyLikeMe APK ($tag)" \
-              --prerelease \
-              --notes "Debug-signed APKs built from $GITHUB_SHA, for sideloading only - not signed for the Play Store. Most phones want app-arm64-v8a-release.apk; app-release.apk is the universal build."
+              --title "ReplyLikeMe $version (${GITHUB_SHA::7})" \
+              "${flags[@]}" \
+              --notes "APKs built from $GITHUB_SHA, signed with the repository's sideload key: for sideloading only, not for the Play Store. Most phones want app-arm64-v8a-release.apk; app-release.apk is the universal build."
           fi
           echo "Release: $(gh release view "$tag" --json url --jq .url)"
