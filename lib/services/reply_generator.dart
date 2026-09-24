@@ -5,8 +5,36 @@ import '../models/chat_turn.dart';
 import '../models/extracted_message.dart';
 import '../models/reply_suggestion.dart';
 import '../models/stored_exchange.dart';
+import '../models/style_profile.dart';
 import 'openai_exception.dart';
 import 'openai_service.dart';
+
+/// A one-tap adjustment to a single suggestion.
+enum Refinement {
+  shorter,
+  warmer,
+  moreLikeMe;
+
+  String get label => switch (this) {
+    shorter => 'Shorter',
+    warmer => 'Warmer',
+    moreLikeMe => 'More like me',
+  };
+
+  /// What the model is asked to change, and nothing else.
+  String instruction(String me) => switch (this) {
+    shorter =>
+      'Make it shorter — cut it down to what $me would actually bother to '
+          'type, keeping the meaning.',
+    warmer =>
+      'Make it warmer and friendlier, the way $me is when they are in a good '
+          'mood with this person. Do not make it longer than it needs to be.',
+    moreLikeMe =>
+      'It does not sound enough like $me. Rewrite it to match the examples '
+          'and the measured habits more closely — their length, casing, '
+          'punctuation, slang and emoji — even if that makes it rougher.',
+  };
+}
 
 /// Writes the next message as you, using your retrieved real replies as the
 /// only style reference.
@@ -62,6 +90,7 @@ class ReplyGenerator {
     required List<ScoredExchange> examples,
     required AppSettings settings,
     String note = '',
+    StyleProfile profile = StyleProfile.empty,
   }) async {
     if (conversation.isEmpty) {
       throw const OpenAiException(
@@ -101,6 +130,7 @@ class ReplyGenerator {
                 examples: examples,
                 settings: settings,
                 note: note,
+                profile: profile,
                 askForJson: false,
                 askForNewTopic: wantsNewTopic,
               ),
@@ -112,7 +142,9 @@ class ReplyGenerator {
         variants.add(
           ReplySuggestion(
             text: _tidy(reply),
-            kind: wantsNewTopic ? SuggestionKind.newTopic : SuggestionKind.reply,
+            kind: wantsNewTopic
+                ? SuggestionKind.newTopic
+                : SuggestionKind.reply,
           ),
         );
       }
@@ -130,6 +162,7 @@ class ReplyGenerator {
             examples: examples,
             settings: settings,
             note: note,
+            profile: profile,
             askForJson: true,
           ),
         },
@@ -139,6 +172,56 @@ class ReplyGenerator {
       jsonMode: true,
     );
     return parseVariants(raw, expected: settings.variantCount);
+  }
+
+  /// Rewrites one suggestion according to [refinement], keeping what it is
+  /// for: a topic change stays a topic change.
+  Future<ReplySuggestion> refine({
+    required ReplySuggestion suggestion,
+    required Refinement refinement,
+    required List<ChatTurn> conversation,
+    required List<ScoredExchange> examples,
+    required AppSettings settings,
+    String note = '',
+    StyleProfile profile = StyleProfile.empty,
+  }) async {
+    final me = _name(settings.myName, 'the user');
+    final prompt = StringBuffer()
+      ..write(
+        buildUserPrompt(
+          conversation: conversation,
+          examples: examples,
+          settings: settings,
+          note: note,
+          profile: profile,
+          askForJson: false,
+          askForNewTopic: suggestion.isNewTopic,
+        ),
+      )
+      ..writeln()
+      ..writeln('--- a draft of that message ---')
+      ..writeln(suggestion.text)
+      ..writeln()
+      ..writeln(refinement.instruction(me))
+      ..write('Output only the rewritten message.');
+
+    final raw = await openai.chat(
+      model: settings.effectiveGenerationModel,
+      messages: [
+        {'role': 'system', 'content': buildSystemPrompt(settings)},
+        {'role': 'user', 'content': prompt.toString()},
+      ],
+      temperature: 0.8,
+      maxOutputTokens: 400,
+    );
+    final text = _tidy(raw);
+    if (text.isEmpty) {
+      throw const OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'The model returned an empty rewrite. Try again.',
+      );
+    }
+    return suggestion.copyWith(text: text);
   }
 
   /// The system prompt, with the two names filled in.
@@ -166,6 +249,7 @@ class ReplyGenerator {
     required bool askForJson,
     String note = '',
     bool askForNewTopic = false,
+    StyleProfile profile = StyleProfile.empty,
   }) {
     final buffer = StringBuffer();
     final me = _name(settings.myName, 'the user');
@@ -195,6 +279,17 @@ class ReplyGenerator {
       buffer.writeln();
     }
 
+    final measured = profile.describe(me);
+    if (measured.isNotEmpty) {
+      buffer.writeln('--- how $me texts, in numbers ---');
+      buffer.writeln(measured);
+      buffer.writeln(
+        'Stay inside these habits: a reply much longer, tidier or more '
+        'punctuated than this is out of character.',
+      );
+      buffer.writeln();
+    }
+
     final recent = conversation.length > settings.contextTurns
         ? conversation.sublist(conversation.length - settings.contextTurns)
         : conversation;
@@ -219,6 +314,8 @@ class ReplyGenerator {
       buffer.writeln();
     }
 
+    final bubbles = _bubbleGuidance(profile, me);
+
     if (askForJson) {
       final count = settings.variantCount;
       buffer.writeln('Write the next message as $me. Give $count options.');
@@ -236,18 +333,38 @@ class ReplyGenerator {
         '{"kind": "new_topic", "text": "..."}]}, and put nothing but the '
         'message text in each "text".',
       );
+      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
     } else if (askForNewTopic) {
       buffer.writeln(
         'Write the next message as $me, but do not answer what was just said '
         '\u2014 move the conversation on to a different subject, the way $me '
         'would change the topic. Output only the message itself.',
       );
+      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
     } else {
       buffer.writeln(
         'Write the next message as $me. Output only the message itself.',
       );
+      if (bubbles.isNotEmpty) buffer.writeln(bubbles);
     }
-    return buffer.toString();
+    return buffer.toString().trimRight();
+  }
+
+  /// Whether to split a message into bubbles, from how often [me] does.
+  ///
+  /// A line break in the output means a separate bubble, which the app lets
+  /// you copy one at a time.
+  static String _bubbleGuidance(StyleProfile profile, String me) {
+    if (profile.turns < 5) return '';
+    final share = profile.multiBubbleShare;
+    if (share >= 0.15) {
+      return '$me sends several bubbles in a row ${(share * 100).round()}% '
+          'of the time, about ${profile.bubblesPerReply.toStringAsFixed(1)} '
+          'per reply. When $me would split a message, put each bubble on its '
+          'own line; a line break means a separate bubble.';
+    }
+    return '$me almost always sends one bubble at a time, so keep each '
+        'message to a single bubble with no line breaks.';
   }
 
   static String _name(String name, String fallback) =>
@@ -330,10 +447,11 @@ class ReplyGenerator {
       for (final variant in variants)
         if (!variant.isNewTopic)
           variant
-        else if (!seen) (() {
-          seen = true;
-          return variant;
-        })()
+        else if (!seen)
+          (() {
+            seen = true;
+            return variant;
+          })()
         else
           variant.copyWith(kind: SuggestionKind.reply),
     ];

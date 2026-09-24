@@ -32,13 +32,17 @@ jobs:
 
       - run: flutter analyze
 
+      # The style-memory store is tested against real SQLite through
+      # sqflite_common_ffi, which loads the system library.
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
       - run: flutter test
 
       # A universal (fat) APK, so it installs on any phone. It is signed with
-      # the Android debug key — Flutter's default release signingConfig — which
-      # is fine for sideloading and not acceptable for the Play Store. Add a
-      # real keystore and signingConfig in android/app/build.gradle.kts before
-      # publishing.
+      # android/app/sideload.keystore, the fixed key committed to the repo, so
+      # every build can install over the last one. That is fine for sideloading
+      # and not acceptable for the Play Store: replace it with your own
+      # keystore, injected from CI secrets, before publishing.
       - run: flutter build apk --release
 
       # Also build one APK per ABI. The universal APK carries the Flutter engine

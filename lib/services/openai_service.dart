@@ -6,9 +6,11 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../models/api_usage.dart';
 import '../models/extracted_message.dart';
 import '../models/finetune_job.dart';
 import 'openai_exception.dart';
+import 'quoted_replies.dart';
 
 /// A message in an OpenAI chat request.
 typedef ChatMessageJson = Map<String, Object?>;
@@ -26,6 +28,7 @@ class OpenAiService {
     this.requestTimeout = const Duration(seconds: 60),
     this.visionTimeout = const Duration(seconds: 120),
     this.maxRetries = 3,
+    this.onUsage,
   }) : _apiKey = apiKey.trim(),
        _client = client ?? http.Client(),
        _ownsClient = client == null;
@@ -37,6 +40,21 @@ class OpenAiService {
   final Duration requestTimeout;
   final Duration visionTimeout;
   final int maxRetries;
+
+  /// Told about the tokens every successful call used, as OpenAI reported
+  /// them, so spending can be tracked on the device.
+  final void Function(ApiUsage usage)? onUsage;
+
+  void _report(
+    Map<String, Object?> json, {
+    required UsageKind kind,
+    required String model,
+  }) {
+    final callback = onUsage;
+    if (callback == null) return;
+    final usage = ApiUsage.fromResponse(json, kind: kind, model: model);
+    if (usage != null) callback(usage);
+  }
 
   /// Newer models take `max_completion_tokens`; older ones only understand
   /// `max_tokens`. Discovered once from a 400 and remembered, so the fallback
@@ -70,6 +88,7 @@ class OpenAiService {
     }
 
     final json = await _postJson('/embeddings', body, timeout: requestTimeout);
+    _report(json, kind: UsageKind.embedding, model: model);
     final data = json['data'];
     if (data is! List || data.length != inputs.length) {
       throw OpenAiException(
@@ -111,6 +130,7 @@ class OpenAiService {
     int? maxOutputTokens,
     bool jsonMode = false,
     Duration? timeout,
+    UsageKind usageKind = UsageKind.generation,
   }) async {
     final text = await _chat(
       model: model,
@@ -119,6 +139,7 @@ class OpenAiService {
       maxOutputTokens: maxOutputTokens,
       jsonMode: jsonMode,
       timeout: timeout ?? requestTimeout,
+      usageKind: usageKind,
     );
     if (text.trim().isEmpty) {
       throw const OpenAiException(
@@ -136,6 +157,7 @@ class OpenAiService {
     required int? maxOutputTokens,
     required bool jsonMode,
     required Duration timeout,
+    required UsageKind usageKind,
   }) async {
     // Up to two extra attempts, each dropping a parameter this model rejected.
     for (var attempt = 0; attempt < 3; attempt++) {
@@ -157,6 +179,7 @@ class OpenAiService {
           body,
           timeout: timeout,
         );
+        _report(json, kind: usageKind, model: model);
         return _firstChoiceContent(json);
       } on OpenAiException catch (error) {
         if (error.kind != OpenAiErrorKind.badRequest) rethrow;
@@ -252,6 +275,7 @@ class OpenAiService {
       maxOutputTokens: 4000,
       jsonMode: true,
       timeout: visionTimeout,
+      usageKind: UsageKind.vision,
     );
 
     return parseExtractedConversation(raw);
@@ -266,19 +290,29 @@ class OpenAiService {
       'messages in top-to-bottom order, exactly as written, keeping emoji, '
       'capitalisation, spelling and language as they appear. Ignore date '
       'separators, timestamps, read receipts, the contact header and the input '
-      'box. Reply with JSON only.';
+      'box.\n\n'
+      'Replies: a bubble that replies to an earlier message has a small quoted '
+      'box at its top, with a coloured bar down one side, the quoted '
+      "sender's name, and the quoted text (often cut short with \u2026). That "
+      'box is NOT part of the message. Put only the text typed below it in '
+      '"text", and the quoted text, without the name, in "quoted". Never put '
+      'the quoted text in "text", and never output the quoted box as a '
+      'message of its own.\n\n'
+      'Reply with JSON only.';
 
   static const String _visionUserPrompt =
       'Transcribe this conversation. Respond with a JSON object of the form '
-      '{"messages": [{"sender": "me" | "them", "text": "..."}]} where "me" is '
-      'a right-aligned bubble and "them" is a left-aligned bubble. If a bubble '
-      'is only an image, sticker or voice note, use its text as an empty '
-      'string. Output nothing but the JSON object.';
+      '{"messages": [{"sender": "me" | "them", "text": "...", '
+      '"quoted": "..."}]} where "me" is a right-aligned bubble and "them" is a '
+      'left-aligned bubble. Include "quoted" only for a bubble that replies to '
+      'another message. If a bubble is only an image, sticker or voice note, '
+      'use its text as an empty string. Output nothing but the JSON object.';
 
   /// Validates and parses the vision model's JSON.
   ///
   /// Accepts either `{"messages": [...]}` or a bare array, and tolerates the
-  /// model wrapping its answer in a Markdown code fence.
+  /// model wrapping its answer in a Markdown code fence. Quoted messages the
+  /// model left inside a reply are taken back out: see [QuotedReplies].
   static List<ExtractedMessage> parseExtractedConversation(String raw) {
     final cleaned = _stripCodeFence(raw);
     final Object? decoded;
@@ -324,7 +358,7 @@ class OpenAiService {
         'conversation itself is visible and try again.',
       );
     }
-    return messages;
+    return QuotedReplies.clean(messages);
   }
 
   static String _stripCodeFence(String raw) {

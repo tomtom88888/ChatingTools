@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -8,66 +7,40 @@ import 'package:http/testing.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/exchange.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
-import 'package:replylikeme/services/exchange_store.dart';
+import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/services/openai_exception.dart';
 import 'package:replylikeme/services/openai_service.dart';
 import 'package:replylikeme/services/style_memory_service.dart';
 import 'package:replylikeme/services/vector_math.dart';
 import 'package:replylikeme/services/whatsapp_parser.dart';
 
-/// In-memory stand-in for the sqflite store.
-class FakeStore implements ExchangeStore {
-  List<StoredExchange> rows = [];
-  StyleMemoryStats? savedStats;
-  int replaceCalls = 0;
-
-  @override
-  Future<void> replaceAll(
-    List<StoredExchange> exchanges, {
-    required StyleMemoryStats stats,
-  }) async {
-    replaceCalls++;
-    rows = List.of(exchanges);
-    savedStats = stats;
-  }
-
-  @override
-  Future<StyleMemoryStats?> stats() async => savedStats;
-
-  @override
-  Future<int> count() async => rows.length;
-
-  @override
-  Future<List<StoredExchange>> all() async => rows;
-
-  @override
-  Future<List<ScoredExchange>> mostSimilar(
-    Float32List query, {
-    int limit = 8,
-  }) async {
-    final vectors = rows.map((r) => r.vector).toList(growable: false);
-    return VectorMath.topK(query, vectors, limit)
-        .map(
-          (i) => ScoredExchange(
-            exchange: rows[i],
-            similarity: VectorMath.dot(query, vectors[i]),
-          ),
-        )
-        .toList();
-  }
-
-  @override
-  Future<void> deleteEverything() async {
-    rows = [];
-    savedStats = null;
-  }
-}
+/// The in-memory store, counting writes so tests can check nothing was saved.
+typedef FakeStore = MemoryExchangeStore;
 
 ChatTurn turn(String sender, String text) =>
     ChatTurn(sender: sender, text: text, messageCount: 1);
 
-Exchange exchange(String theirText, String myReply) =>
-    Exchange(context: [turn('Sam', theirText)], reply: turn('Robin', myReply));
+Exchange exchange(
+  String theirText,
+  String myReply, {
+  String them = 'Sam',
+}) => Exchange(context: [turn(them, theirText)], reply: turn('Robin', myReply));
+
+ChatMemory samChat({
+  int id = 1,
+  String them = 'Sam',
+  String model = 'text-embedding-3-small',
+  int dimensions = 2,
+  bool enabled = true,
+}) => ChatMemory(
+  id: id,
+  myName: 'Robin',
+  theirName: them,
+  embeddingModel: model,
+  dimensions: dimensions,
+  builtAt: DateTime(2026, 9, 1),
+  enabled: enabled,
+);
 
 void main() {
   /// Returns a deterministic vector per input so retrieval is checkable.
@@ -102,7 +75,7 @@ void main() {
         store: store,
       );
 
-      final stats = await service.build(
+      final chat = await service.build(
         exchanges: [exchange('pub?', 'go on then'), exchange('when', 'half 8')],
         myName: 'Robin',
         theirName: 'Sam',
@@ -111,10 +84,11 @@ void main() {
       );
 
       expect(store.rows, hasLength(2));
-      expect(stats.exchangeCount, 2);
-      expect(stats.dimensions, 2);
-      expect(stats.myName, 'Robin');
-      expect(stats.theirName, 'Sam');
+      expect(chat.exchangeCount, 2);
+      expect(chat.dimensions, 2);
+      expect(chat.myName, 'Robin');
+      expect(chat.theirName, 'Sam');
+      expect(chat.enabled, isTrue);
       for (final row in store.rows) {
         expect(VectorMath.dot(row.vector, row.vector), closeTo(1.0, 1e-6));
       }
@@ -170,20 +144,23 @@ void main() {
           ),
         ),
       );
-      expect(store.replaceCalls, 0);
+      expect(store.saveCalls, 0);
     });
 
     test('cancelling leaves the existing memory untouched', () async {
-      final store = FakeStore()
-        ..rows = [
+      final store = FakeStore(
+        chats: [samChat()],
+        rows: [
           StoredExchange(
             id: 1,
+            chatId: 1,
             context: [turn('Sam', 'old')],
             contextText: 'Sam: old',
             replyText: 'old reply',
             vector: VectorMath.normalise([1, 0]),
           ),
-        ];
+        ],
+      );
       var batches = 0;
       final service = StyleMemoryService(
         openai: embedderThat((input) => [1, 0], onBatch: (_) => batches++),
@@ -201,7 +178,7 @@ void main() {
         ),
         throwsA(isA<StyleMemoryCancelled>()),
       );
-      expect(store.replaceCalls, 0);
+      expect(store.saveCalls, 0);
       expect(store.rows.single.replyText, 'old reply');
     });
   });
@@ -228,12 +205,12 @@ void main() {
         dimensions: 2,
       );
 
-      final hits = await service.retrieve(
+      final hits = (await service.retrieve(
         context: [turn('Sam', 'pub later')],
         embeddingModel: 'text-embedding-3-small',
         dimensions: 2,
         limit: 2,
-      );
+      )).examples;
 
       expect(hits.first.exchange.replyText, 'go on then');
       expect(hits.first.similarity, closeTo(1.0, 1e-6));
@@ -255,8 +232,252 @@ void main() {
         dimensions: 2,
         limit: 8,
       );
-      expect(hits, isEmpty);
+      expect(hits.examples, isEmpty);
       expect(calls, 0);
+    });
+  });
+
+  group('incremental import', () {
+    test('re-importing only embeds exchanges not already stored', () async {
+      final store = FakeStore();
+      final embedded = <String>[];
+      final service = StyleMemoryService(
+        openai: embedderThat((input) {
+          embedded.add(input);
+          return [1, 0];
+        }),
+        store: store,
+      );
+      Future<ChatMemory> import(List<Exchange> exchanges) => service.build(
+        exchanges: exchanges,
+        myName: 'Robin',
+        theirName: 'Sam',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+      );
+
+      final first = await import([exchange('pub?', 'yes'), exchange('when', '8')]);
+      embedded.clear();
+      final second = await import([
+        exchange('pub?', 'yes'),
+        exchange('when', '8'),
+        exchange('where', 'the usual'),
+      ]);
+
+      expect(embedded, ['Sam: where']);
+      expect(second.id, first.id, reason: 'same chat, not a new one');
+      expect(second.exchangeCount, 3);
+      expect(await store.chats(), hasLength(1));
+    });
+
+    test('the plan counts what is new and prices only that', () async {
+      final store = FakeStore();
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0]),
+        store: store,
+      );
+      await service.build(
+        exchanges: [exchange('pub?', 'yes')],
+        myName: 'Robin',
+        theirName: 'Sam',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+      );
+      final plan = await service.plan(
+        exchanges: [
+          exchange('pub?', 'yes'),
+          exchange('new one', 'ok'),
+          exchange('new one', 'ok'),
+        ],
+        myName: 'Robin',
+        theirName: 'Sam',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+      );
+      expect(plan.isNewChat, isFalse);
+      expect(plan.alreadyKnown, 1);
+      expect(plan.toEmbed, hasLength(1), reason: 'duplicates collapse');
+      expect(plan.estimate.exchangeCount, 1);
+    });
+
+    test('a different embedding model rebuilds the chat from scratch', () async {
+      final store = FakeStore();
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0, 0]),
+        store: store,
+      );
+      store.rows.add(
+        StoredExchange(
+          id: 1,
+          chatId: (await store.saveChat(samChat(dimensions: 2))).id,
+          context: [turn('Sam', 'pub?')],
+          contextText: 'Sam: pub?',
+          replyText: 'yes',
+          vector: VectorMath.normalise([1, 0]),
+          hash: StoredExchange.contentHash('Sam: pub?', 'yes'),
+        ),
+      );
+
+      final plan = await service.plan(
+        exchanges: [exchange('pub?', 'yes')],
+        myName: 'Robin',
+        theirName: 'Sam',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 3,
+      );
+      expect(plan.replacesExisting, isTrue);
+      expect(plan.toEmbed, hasLength(1));
+
+      final chat = await service.build(
+        exchanges: [exchange('pub?', 'yes')],
+        myName: 'Robin',
+        theirName: 'Sam',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 3,
+      );
+      expect(chat.dimensions, 3);
+      expect(store.rows.single.vector, hasLength(3));
+    });
+
+    test('another person starts a separate chat', () async {
+      final store = FakeStore();
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0]),
+        store: store,
+      );
+      for (final them in ['Sam', 'Mum']) {
+        await service.build(
+          exchanges: [exchange('hi', 'hey', them: them)],
+          myName: 'Robin',
+          theirName: them,
+          embeddingModel: 'text-embedding-3-small',
+          dimensions: 2,
+        );
+      }
+      final chats = await store.chats();
+      expect(chats.map((c) => c.theirName), ['Sam', 'Mum']);
+      expect(chats.every((c) => c.exchangeCount == 1), isTrue);
+    });
+  });
+
+  group('retrieving across chats', () {
+    Future<(StyleMemoryService, FakeStore)> twoChats() async {
+      final store = FakeStore();
+      final service = StyleMemoryService(
+        openai: embedderThat((input) => [1, 0]),
+        store: store,
+      );
+      await service.build(
+        exchanges: [exchange('hi', 'hey babe', them: 'Alex')],
+        myName: 'Robin',
+        theirName: 'Alex',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+      );
+      await service.build(
+        exchanges: [exchange('hi', 'Good morning.', them: 'Boss')],
+        myName: 'Robin',
+        theirName: 'Boss',
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+      );
+      return (service, store);
+    }
+
+    test('only ticked chats are searched', () async {
+      final (service, store) = await twoChats();
+      final boss = (await store.chats()).last;
+      await store.setChatEnabled(boss.id, enabled: false);
+
+      final hits = await service.retrieve(
+        context: [turn('Alex', 'hi')],
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+        limit: 8,
+      );
+      expect(hits.examples.map((e) => e.exchange.replyText), ['hey babe']);
+    });
+
+    test('explicit chat ids override the ticks', () async {
+      final (service, store) = await twoChats();
+      final boss = (await store.chats()).last;
+      final hits = await service.retrieve(
+        context: [turn('Boss', 'hi')],
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+        limit: 8,
+        chatIds: {boss.id},
+      );
+      expect(hits.examples.single.exchange.replyText, 'Good morning.');
+    });
+
+    test('a chat built with another model is skipped and reported', () async {
+      final store = FakeStore(chats: [samChat(dimensions: 3)]);
+      store.rows.add(
+        StoredExchange(
+          id: 1,
+          chatId: 1,
+          context: [turn('Sam', 'hi')],
+          contextText: 'Sam: hi',
+          replyText: 'yo',
+          vector: VectorMath.normalise([1, 0, 0]),
+        ),
+      );
+      var calls = 0;
+      final service = StyleMemoryService(
+        openai: embedderThat((input) {
+          calls++;
+          return [1, 0];
+        }),
+        store: store,
+      );
+      final hits = await service.retrieve(
+        context: [turn('Sam', 'hi')],
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+        limit: 8,
+      );
+      expect(hits.examples, isEmpty);
+      expect(hits.skipped.single.theirName, 'Sam');
+      expect(calls, 0, reason: 'nothing searchable, so nothing embedded');
+    });
+  });
+
+  group('saveReply', () {
+    test('stores a starred suggestion as a saved exchange, once', () async {
+      final store = FakeStore(chats: [samChat()]);
+      var calls = 0;
+      final service = StyleMemoryService(
+        openai: embedderThat((input) {
+          calls++;
+          return [0, 1];
+        }),
+        store: store,
+      );
+      final chat = (await store.chats()).single;
+      final conversation = [
+        for (var i = 0; i < 12; i++) turn(i.isEven ? 'Sam' : 'Robin', 'm$i'),
+      ];
+
+      final saved = await service.saveReply(
+        chat: chat,
+        conversation: conversation,
+        reply: 'see you there',
+        contextTurns: 4,
+      );
+      await service.saveReply(
+        chat: saved,
+        conversation: conversation,
+        reply: 'see you there',
+        contextTurns: 4,
+      );
+
+      expect(calls, 1, reason: 'the same save twice is ignored');
+      final row = store.rows.single;
+      expect(row.source, ExchangeSource.saved);
+      expect(row.context, hasLength(4));
+      expect(row.replyText, 'see you there');
+      expect(saved.savedCount, 1);
     });
   });
 

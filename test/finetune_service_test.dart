@@ -373,4 +373,41 @@ void main() {
       expect(seen.single.error, 'training file was invalid');
     });
   });
+
+  test('buildJsonl names each exchange after its own chat', () {
+    final jsonl = FineTuneService.buildJsonl(
+      [
+        stored([turn('Sam', 'pub?')], 'go on then').copyWith(chatId: 1),
+        stored([turn('Mum', 'call me')], 'will do x').copyWith(chatId: 2),
+      ],
+      myName: 'Robin',
+      theirName: 'Sam',
+      contextTurns: 10,
+      chats: {
+        1: ChatMemory(
+          id: 1,
+          myName: 'Robin',
+          theirName: 'Sam',
+          embeddingModel: 'e',
+          dimensions: 2,
+          builtAt: DateTime(2026),
+        ),
+        2: ChatMemory(
+          id: 2,
+          myName: 'Robin',
+          theirName: 'Mum',
+          embeddingModel: 'e',
+          dimensions: 2,
+          builtAt: DateTime(2026),
+        ),
+      },
+    );
+    final lines = jsonl.trim().split('\n');
+    String system(String line) =>
+        (((jsonDecode(line) as Map)['messages'] as List).first
+                as Map)['content']
+            as String;
+    expect(system(lines[0]), contains('texting Sam'));
+    expect(system(lines[1]), contains('texting Mum'));
+  });
 }

@@ -9,49 +9,13 @@ import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/screens/settings_screen.dart';
-import 'package:replylikeme/services/exchange_store.dart';
+import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/state/providers.dart';
 import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// In-memory style memory, so no database is touched.
-class FakeStore implements ExchangeStore {
-  FakeStore({this.savedStats, List<StoredExchange>? rows})
-    : rows = rows ?? <StoredExchange>[];
-
-  List<StoredExchange> rows;
-  StyleMemoryStats? savedStats;
-
-  @override
-  Future<void> replaceAll(
-    List<StoredExchange> exchanges, {
-    required StyleMemoryStats stats,
-  }) async {
-    rows = List.of(exchanges);
-    savedStats = stats;
-  }
-
-  @override
-  Future<StyleMemoryStats?> stats() async => savedStats;
-
-  @override
-  Future<int> count() async => rows.length;
-
-  @override
-  Future<List<StoredExchange>> all() async => rows;
-
-  @override
-  Future<List<ScoredExchange>> mostSimilar(
-    Float32List query, {
-    int limit = 8,
-  }) async => const [];
-
-  @override
-  Future<void> deleteEverything() async {
-    rows = [];
-    savedStats = null;
-  }
-}
+typedef FakeStore = MemoryExchangeStore;
 
 /// Stands in for the keystore-backed notifier.
 class FakeApiKey extends ApiKeyNotifier {
@@ -63,22 +27,27 @@ class FakeApiKey extends ApiKeyNotifier {
   Future<String?> build() async => key;
 }
 
-StoredExchange exampleExchange() => StoredExchange(
-  id: 1,
+StoredExchange exampleExchange({int chatId = 1}) => StoredExchange(
+  id: -1,
+  chatId: chatId,
   context: const [ChatTurn(sender: 'Sam', text: 'pub?', messageCount: 1)],
   contextText: 'Sam: pub?',
   replyText: 'go on then',
   vector: Float32List(2),
 );
 
-StyleMemoryStats exampleStats() => StyleMemoryStats(
-  exchangeCount: 1,
+ChatMemory exampleChat({int id = 1, String them = 'Sam'}) => ChatMemory(
+  id: id,
   embeddingModel: AppSettings.defaultEmbeddingModel,
   dimensions: 512,
   myName: 'Robin',
-  theirName: 'Sam',
+  theirName: them,
   builtAt: DateTime(2026, 9, 19, 14, 30),
 );
+
+/// A store holding one learned chat with Sam.
+FakeStore trainedStore() =>
+    FakeStore(chats: [exampleChat()], rows: [exampleExchange()]);
 
 /// The test viewport is short, so anything below the fold has to be scrolled
 /// into view before it is built at all.
@@ -165,15 +134,13 @@ void main() {
     await pumpApp(
       tester,
       apiKey: 'sk-test-0123456789abcdefghij',
-      store: FakeStore(
-        savedStats: exampleStats(),
-        rows: [exampleExchange()],
-      ),
+      store: trainedStore(),
     );
 
     // The hero names who it knows and how much of you it read. 'Sam' appears
-    // twice now: once in the hero, once in the learning-from pair below it.
-    expect(find.text('Sam'), findsNWidgets(2));
+    // three times: in the hero, in the chat list, and in the learning-from
+    // pair.
+    expect(find.text('Sam'), findsNWidgets(3));
     expect(find.text('1'), findsOneWidget);
     expect(find.text('of your replies learned'), findsOneWidget);
     // The two names are separate widgets, so their order is fixed by the
@@ -186,8 +153,8 @@ void main() {
 
     // Trained, writing leads and refreshing is the secondary action.
     expect(find.text('Write a reply'), findsOneWidget);
-    expect(find.text('From a screenshot of your chat'), findsOneWidget);
-    expect(find.text('Refresh the memory'), findsOneWidget);
+    expect(find.text('From a screenshot or pasted chat'), findsOneWidget);
+    expect(find.text('Add or refresh a chat'), findsOneWidget);
     expect(find.byIcon(Icons.lock_outline), findsNothing);
   });
 
@@ -197,7 +164,7 @@ void main() {
     await pumpApp(
       tester,
       apiKey: 'sk-proj-0123456789abcdefghij',
-      store: FakeStore(savedStats: exampleStats()),
+      store: FakeStore(chats: [exampleChat()]),
     );
 
     await tester.tap(find.byIcon(Icons.settings_outlined));
@@ -217,6 +184,11 @@ void main() {
     expect(find.text('Style memory'), findsOneWidget);
     expect(find.text('Fine-tuned'), findsOneWidget);
 
+    // Spending is tallied on the phone; nothing has been spent yet.
+    await scrollTo(tester, find.text('SPENDING'));
+    expect(find.text('nothing yet'), findsOneWidget);
+    expect(find.text('Chat input price'), findsOneWidget);
+
     await scrollTo(tester, find.text('Delete all my data'));
     expect(find.text('Delete all my data'), findsOneWidget);
   });
@@ -225,7 +197,7 @@ void main() {
     await pumpApp(
       tester,
       apiKey: 'sk-test-0123456789abcdefghij',
-      store: FakeStore(savedStats: exampleStats()),
+      store: FakeStore(chats: [exampleChat()]),
     );
 
     await tester.tap(find.byIcon(Icons.settings_outlined));
@@ -261,10 +233,7 @@ void main() {
   testWidgets('the delete dialog separates the data from the key', (
     tester,
   ) async {
-    final store = FakeStore(
-      savedStats: exampleStats(),
-      rows: [exampleExchange()],
-    );
+    final store = trainedStore();
     await pumpApp(
       tester,
       apiKey: 'sk-test-0123456789abcdefghij',
@@ -284,6 +253,59 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.rows, isEmpty);
-    expect(store.savedStats, isNull);
+    expect(await store.chats(), isEmpty);
+  });
+
+  testWidgets('each chat has a tick box that decides what is written from', (
+    tester,
+  ) async {
+    final store = FakeStore(
+      chats: [exampleChat(), exampleChat(id: 2, them: 'Mum')],
+      rows: [exampleExchange(), exampleExchange(chatId: 2)],
+    );
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: store,
+    );
+
+    expect(find.text('CHATS IT WRITES FROM'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNWidgets(2));
+    expect(find.text('Sam & Mum'), findsWidgets);
+    expect(find.text('2 of 2 on'), findsOneWidget);
+
+    // Unticking one takes it out of the hero and out of the store's set.
+    await tester.ensureVisible(find.byKey(const ValueKey('chat-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('chat-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 of 2 on'), findsOneWidget);
+    expect((await store.chats()).last.enabled, isFalse);
+
+    // With nothing ticked, writing is locked until something is.
+    await tester.ensureVisible(find.byKey(const ValueKey('chat-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('chat-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Tick at least one chat above'), findsOneWidget);
+    expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+  });
+
+  testWidgets('the style report opens from home without any network', (
+    tester,
+  ) async {
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: FakeStore(chats: [exampleChat()], rows: [exampleExchange()]),
+    );
+    await scrollTo(tester, find.text('Your style report'));
+    await tester.tap(find.text('Your style report'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('How you text'), findsOneWidget);
+    // The example chat has no measured profile, so the page says so.
+    expect(find.text('Nothing measured yet'), findsOneWidget);
+    expect(find.text('No API calls are made to build this page.'), findsWidgets);
   });
 }

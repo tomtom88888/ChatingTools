@@ -26,6 +26,8 @@ class AppSettings {
     this.theirName = '',
     this.fineTunedModel,
     this.systemPrompt,
+    this.chatInputUsdPerMillion,
+    this.chatOutputUsdPerMillion,
   });
 
   // OpenAI renames and retires models often, so these are starting points, not
@@ -107,10 +109,11 @@ class AppSettings {
   /// How many reply options to offer.
   final int variantCount;
 
-  /// Your name as it appears in the export.
+  /// Your name as it appears in the most recent export.
   final String myName;
 
-  /// The other person's name as it appears in the export.
+  /// The other person's name in the most recent export. Generation uses the
+  /// name of the chat you pick instead; this is the fallback and the default.
   final String theirName;
 
   /// Set once a fine-tuning job has succeeded.
@@ -118,6 +121,12 @@ class AppSettings {
 
   /// An edited system prompt, or `null` to use [defaultSystemPrompt].
   final String? systemPrompt;
+
+  /// What the chat models cost per million input and output tokens, for the
+  /// spending tally. `null` until entered: chat prices change too often to
+  /// ship as defaults.
+  final double? chatInputUsdPerMillion;
+  final double? chatOutputUsdPerMillion;
 
   /// The prompt template actually in force. An empty edit falls back to the
   /// default rather than sending the model no instructions at all.
@@ -158,6 +167,9 @@ class AppSettings {
     bool clearFineTunedModel = false,
     String? systemPrompt,
     bool resetSystemPrompt = false,
+    double? chatInputUsdPerMillion,
+    double? chatOutputUsdPerMillion,
+    bool clearChatPrices = false,
   }) => AppSettings(
     visionModel: visionModel ?? this.visionModel,
     generationModel: generationModel ?? this.generationModel,
@@ -176,6 +188,12 @@ class AppSettings {
     systemPrompt: resetSystemPrompt
         ? null
         : (systemPrompt ?? this.systemPrompt),
+    chatInputUsdPerMillion: clearChatPrices
+        ? null
+        : (chatInputUsdPerMillion ?? this.chatInputUsdPerMillion),
+    chatOutputUsdPerMillion: clearChatPrices
+        ? null
+        : (chatOutputUsdPerMillion ?? this.chatOutputUsdPerMillion),
   );
 
   Map<String, Object?> toJson() => {
@@ -192,6 +210,8 @@ class AppSettings {
     'theirName': theirName,
     'fineTunedModel': fineTunedModel,
     'systemPrompt': systemPrompt,
+    'chatInputUsdPerMillion': chatInputUsdPerMillion,
+    'chatOutputUsdPerMillion': chatOutputUsdPerMillion,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> json) {
@@ -231,6 +251,10 @@ class AppSettings {
       theirName: str('theirName', ''),
       fineTunedModel: json['fineTunedModel'] as String?,
       systemPrompt: json['systemPrompt'] as String?,
+      chatInputUsdPerMillion: (json['chatInputUsdPerMillion'] as num?)
+          ?.toDouble(),
+      chatOutputUsdPerMillion: (json['chatOutputUsdPerMillion'] as num?)
+          ?.toDouble(),
     );
   }
 }

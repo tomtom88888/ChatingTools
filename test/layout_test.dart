@@ -7,49 +7,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/screens/home_screen.dart';
-import 'package:replylikeme/services/exchange_store.dart';
+import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/state/providers.dart';
 import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
-
-class _Store implements ExchangeStore {
-  _Store(this.savedStats);
-
-  final StyleMemoryStats? savedStats;
-
-  @override
-  Future<void> replaceAll(
-    List<StoredExchange> exchanges, {
-    required StyleMemoryStats stats,
-  }) async {}
-
-  @override
-  Future<StyleMemoryStats?> stats() async => savedStats;
-
-  @override
-  Future<int> count() async => savedStats?.exchangeCount ?? 0;
-
-  @override
-  Future<List<StoredExchange>> all() async => const [];
-
-  @override
-  Future<List<ScoredExchange>> mostSimilar(
-    Float32List query, {
-    int limit = 8,
-  }) async => const [];
-
-  @override
-  Future<void> deleteEverything() async {}
-}
 
 class _Key extends ApiKeyNotifier {
   @override
   Future<String?> build() async => 'sk-test-0123456789abcdefghij';
 }
 
-StyleMemoryStats hebrewStats() => StyleMemoryStats(
-  exchangeCount: 2424,
+ChatMemory hebrewChat() => ChatMemory(
+  id: 1,
   embeddingModel: AppSettings.defaultEmbeddingModel,
   dimensions: 512,
   myName: 'תום',
@@ -64,7 +34,7 @@ const double statusBar = 24;
 
 Future<void> pumpHome(
   WidgetTester tester, {
-  StyleMemoryStats? stats,
+  ChatMemory? chat,
 }) async {
   tester.view.physicalSize = const Size(1080, 2340);
   tester.view.devicePixelRatio = 3;
@@ -80,7 +50,23 @@ Future<void> pumpHome(
     ProviderScope(
       overrides: [
         apiKeyProvider.overrideWith(_Key.new),
-        exchangeStoreProvider.overrideWithValue(_Store(stats)),
+        exchangeStoreProvider.overrideWithValue(
+          MemoryExchangeStore(
+            chats: [?chat],
+            rows: [
+              if (chat != null)
+                for (var i = 0; i < 3; i++)
+                  StoredExchange(
+                    id: -1,
+                    chatId: chat.id,
+                    context: const [],
+                    contextText: '',
+                    replyText: 'r$i',
+                    vector: Float32List(2),
+                  ),
+            ],
+          ),
+        ),
       ],
       child: MaterialApp(
         home: Builder(
@@ -147,7 +133,7 @@ void main() {
     testWidgets('"learning from" puts me on the left and them on the right', (
       tester,
     ) async {
-      await pumpHome(tester, stats: hebrewStats());
+      await pumpHome(tester, chat: hebrewChat());
 
       // Measured, not asserted against a string: the two names are separate
       // widgets in a pinned left-to-right row, so a Hebrew name cannot swap
@@ -171,7 +157,7 @@ void main() {
     testWidgets('the detail rows run the full width of the card', (
       tester,
     ) async {
-      await pumpHome(tester, stats: hebrewStats());
+      await pumpHome(tester, chat: hebrewChat());
 
       // Centred, shrink-wrapped rows leave the dividers as short stubs in the
       // middle of the card; the design runs them edge to edge.
@@ -195,7 +181,7 @@ void main() {
     testWidgets('the footnote clears the navigation bar when trained', (
       tester,
     ) async {
-      await pumpHome(tester, stats: hebrewStats());
+      await pumpHome(tester, chat: hebrewChat());
 
       final footnote = find.text('Your chat history never leaves this phone.');
       expect(footnote, findsOneWidget);
@@ -223,14 +209,14 @@ void main() {
     });
 
     testWidgets('the wordmark clears the status bar', (tester) async {
-      await pumpHome(tester, stats: hebrewStats());
+      await pumpHome(tester, chat: hebrewChat());
 
       final top = tester.getRect(find.text('REPLYLIKEME')).top;
       expect(top, greaterThanOrEqualTo(statusBar));
     });
 
     testWidgets('nothing overflows on a narrow phone', (tester) async {
-      await pumpHome(tester, stats: hebrewStats());
+      await pumpHome(tester, chat: hebrewChat());
       expect(tester.takeException(), isNull);
 
       await pumpHome(tester);

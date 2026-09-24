@@ -9,6 +9,7 @@ import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/extracted_message.dart';
 import 'package:replylikeme/models/reply_suggestion.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
+import 'package:replylikeme/models/style_profile.dart';
 import 'package:replylikeme/services/openai_exception.dart';
 import 'package:replylikeme/services/openai_service.dart';
 import 'package:replylikeme/services/reply_generator.dart';
@@ -504,6 +505,110 @@ void main() {
         ),
         throwsA(isA<OpenAiException>()),
       );
+    });
+  });
+
+  group('measured style in the prompt', () {
+    final chatty = StyleProfile.measure([
+      for (var i = 0; i < 10; i++)
+        ChatTurn(sender: 'Robin', text: 'haha\nok', messageCount: 2),
+    ], me: 'Robin');
+    final single = StyleProfile.measureTexts([
+      for (var i = 0; i < 10; i++) 'ok',
+    ]);
+
+    test('includes the numbers and asks to stay inside them', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: true,
+        profile: single,
+      );
+      expect(prompt, contains('how Robin texts, in numbers'));
+      expect(prompt, contains('half are 1 word or fewer'));
+      expect(prompt, contains('out of character'));
+    });
+
+    test('asks for bubbles on separate lines when I split messages', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: true,
+        profile: chatty,
+      );
+      expect(prompt, contains('several bubbles in a row 100%'));
+      expect(prompt, contains('a line break means a separate bubble'));
+    });
+
+    test('asks for one bubble when I rarely split', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: false,
+        profile: single,
+      );
+      expect(prompt, contains('single bubble with no line breaks'));
+    });
+
+    test('says nothing about style with no profile', () {
+      final prompt = ReplyGenerator.buildUserPrompt(
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+        askForJson: true,
+      );
+      expect(prompt, isNot(contains('in numbers')));
+      expect(prompt, isNot(contains('bubble')));
+    });
+  });
+
+  group('refine', () {
+    test('sends the draft and the tweak, and keeps what it was for', () async {
+      Map<String, Object?>? sent;
+      final generator = ReplyGenerator(
+        openai: OpenAiService(
+          apiKey: 'sk-test-0123456789abcdefghij',
+          maxRetries: 0,
+          client: MockClient((request) async {
+            sent = jsonDecode(request.body) as Map<String, Object?>;
+            return http.Response(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {'content': '"anyway, weekend?"'},
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        ),
+      );
+
+      final result = await generator.refine(
+        suggestion: const ReplySuggestion(
+          text: 'anyway, how are your plans for the weekend looking?',
+          kind: SuggestionKind.newTopic,
+        ),
+        refinement: Refinement.shorter,
+        conversation: [turn('Sam', 'pub?')],
+        examples: const [],
+        settings: settings,
+      );
+
+      expect(result.text, 'anyway, weekend?');
+      expect(result.kind, SuggestionKind.newTopic);
+      final user = ((sent!['messages']! as List).last as Map)['content']
+          as String;
+      expect(user, contains('--- a draft of that message ---'));
+      expect(user, contains('how are your plans for the weekend'));
+      expect(user, contains('Make it shorter'));
+      // A topic change is refined as a topic change.
+      expect(user, contains('do not answer what was just said'));
     });
   });
 }

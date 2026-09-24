@@ -6,67 +6,276 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/chat_turn.dart';
 import '../models/stored_exchange.dart';
+import '../models/style_profile.dart';
+import '../models/suggestion_feedback.dart';
 import 'exchange_store.dart';
 import 'vector_math.dart';
 
 /// The on-device style memory, backed by sqflite.
 ///
 /// Vectors are stored as little-endian float32 blobs and kept unit-length, so
-/// similarity search is a dot product. Rows are cached in memory after the
-/// first read: at the default 512 dimensions a few thousand exchanges is a
-/// handful of megabytes, and searching in memory avoids decoding every blob on
-/// every keystroke-speed query.
+/// similarity search is a dot product. Each chat's rows are cached in memory
+/// after the first read, and only the chats a query asks for are read at all:
+/// switched-off chats cost nothing.
 class SqfliteExchangeStore implements ExchangeStore {
-  SqfliteExchangeStore({this.databaseName = 'replylikeme_style_memory.db'});
+  SqfliteExchangeStore({
+    this.databaseName = 'replylikeme_style_memory.db',
+    DatabaseFactory? factory,
+    this.inMemory = false,
+  }) : _factory = factory; // ignore: prefer_initializing_formals
 
   final String databaseName;
 
-  static const int _schemaVersion = 1;
+  /// Tests open the database in memory through sqflite_common_ffi.
+  final bool inMemory;
+  final DatabaseFactory? _factory;
+
+  /// v1: one chat, described by a JSON row in `meta`.
+  /// v2: a `chats` table, per-exchange chat ids and content hashes, and the
+  ///     feedback log.
+  static const int schemaVersion = 2;
 
   Database? _database;
-  List<StoredExchange>? _cache;
+  final Map<int, List<StoredExchange>> _cache = {};
+
+  DatabaseFactory get _db => _factory ?? databaseFactory;
+
+  Future<String> _path() async => inMemory
+      ? inMemoryDatabasePath
+      : p.join(await _db.getDatabasesPath(), databaseName);
 
   Future<Database> _open() async {
     final existing = _database;
     if (existing != null) return existing;
-    final path = p.join(await getDatabasesPath(), databaseName);
-    final database = await openDatabase(
-      path,
-      version: _schemaVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE exchanges (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            context_json  TEXT    NOT NULL,
-            context_text  TEXT    NOT NULL,
-            reply         TEXT    NOT NULL,
-            ts            INTEGER,
-            vector        BLOB    NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE meta (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-          )
-        ''');
-      },
+    final database = await _db.openDatabase(
+      await _path(),
+      options: OpenDatabaseOptions(
+        version: schemaVersion,
+        onCreate: (db, version) => createSchema(db, version: version),
+        onUpgrade: (db, from, to) async {
+          if (from < 2) await _upgradeToV2(db);
+        },
+      ),
     );
     _database = database;
     return database;
   }
 
+  /// Creates the tables for [version]. Public so a test can build a v1
+  /// database and check the upgrade.
+  static Future<void> createSchema(Database db, {required int version}) async {
+    await db.execute('''
+      CREATE TABLE meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    if (version == 1) {
+      await db.execute('''
+        CREATE TABLE exchanges (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          context_json  TEXT    NOT NULL,
+          context_text  TEXT    NOT NULL,
+          reply         TEXT    NOT NULL,
+          ts            INTEGER,
+          vector        BLOB    NOT NULL
+        )
+      ''');
+      return;
+    }
+    await db.execute('''
+      CREATE TABLE exchanges (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id       INTEGER NOT NULL,
+        hash          TEXT    NOT NULL,
+        source        TEXT    NOT NULL DEFAULT 'export',
+        context_json  TEXT    NOT NULL,
+        context_text  TEXT    NOT NULL,
+        reply         TEXT    NOT NULL,
+        ts            INTEGER,
+        vector        BLOB    NOT NULL
+      )
+    ''');
+    await _createV2Tables(db);
+  }
+
+  static Future<void> _createV2Tables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE chats (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        my_name          TEXT    NOT NULL,
+        their_name       TEXT    NOT NULL,
+        embedding_model  TEXT    NOT NULL,
+        dimensions       INTEGER NOT NULL,
+        built_at         INTEGER NOT NULL,
+        enabled          INTEGER NOT NULL DEFAULT 1,
+        profile_json     TEXT    NOT NULL DEFAULT '{}'
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX exchanges_by_chat ON exchanges (chat_id, hash)',
+    );
+    await db.execute('''
+      CREATE TABLE feedback (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        at            INTEGER NOT NULL,
+        chat_id       INTEGER,
+        picked_index  INTEGER,
+        picked_text   TEXT,
+        saved         INTEGER NOT NULL DEFAULT 0,
+        extra_json    TEXT    NOT NULL DEFAULT '{}'
+      )
+    ''');
+  }
+
+  /// Moves a single-chat v1 memory into the multi-chat layout without
+  /// re-embedding anything: the old stats row becomes the first chat, and
+  /// every exchange is given that chat's id and a content hash.
+  static Future<void> _upgradeToV2(Database db) async {
+    await db.transaction((txn) async {
+      await txn.execute('ALTER TABLE exchanges ADD COLUMN chat_id INTEGER');
+      await txn.execute('ALTER TABLE exchanges ADD COLUMN hash TEXT');
+      await txn.execute(
+        "ALTER TABLE exchanges ADD COLUMN source TEXT NOT NULL DEFAULT 'export'",
+      );
+      await _createV2Tables(txn);
+
+      final rows = await txn.query(
+        'exchanges',
+        columns: ['id', 'context_text', 'reply', 'vector'],
+      );
+      final metaRows = await txn.query(
+        'meta',
+        where: 'key = ?',
+        whereArgs: ['stats'],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        await txn.delete('meta', where: 'key = ?', whereArgs: ['stats']);
+        return;
+      }
+
+      Map<Object?, Object?> stats = const {};
+      if (metaRows.isNotEmpty) {
+        final decoded = jsonDecode(metaRows.first['value']! as String);
+        if (decoded is Map) stats = decoded;
+      }
+      final firstVector = rows.first['vector']! as Uint8List;
+      final chatId = await txn.insert('chats', {
+        'my_name': stats['myName'] as String? ?? '',
+        'their_name': stats['theirName'] as String? ?? '',
+        'embedding_model': stats['embeddingModel'] as String? ?? '',
+        'dimensions':
+            (stats['dimensions'] as num?)?.toInt() ?? firstVector.length ~/ 4,
+        'built_at':
+            (DateTime.tryParse(stats['builtAt'] as String? ?? '') ??
+                    DateTime.now())
+                .millisecondsSinceEpoch,
+        'enabled': 1,
+        'profile_json': jsonEncode(
+          StyleProfile.measureTexts(
+            rows.map((r) => r['reply']! as String),
+          ).toJson(),
+        ),
+      });
+
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.update(
+          'exchanges',
+          {
+            'chat_id': chatId,
+            'hash': StoredExchange.contentHash(
+              row['context_text']! as String,
+              row['reply']! as String,
+            ),
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+      await batch.commit(noResult: true);
+      await txn.delete('meta', where: 'key = ?', whereArgs: ['stats']);
+    });
+  }
+
+  // --------------------------------------------------------------------- chats
+
   @override
-  Future<void> replaceAll(
-    List<StoredExchange> exchanges, {
-    required StyleMemoryStats stats,
+  Future<List<ChatMemory>> chats() async {
+    final db = await _open();
+    final rows = await db.rawQuery('''
+      SELECT c.*,
+             COUNT(e.id) AS n,
+             SUM(CASE WHEN e.source = 'saved' THEN 1 ELSE 0 END) AS saved
+      FROM chats c
+      LEFT JOIN exchanges e ON e.chat_id = c.id
+      GROUP BY c.id
+      ORDER BY c.id ASC
+    ''');
+    return rows.map(_chatFromRow).toList(growable: false);
+  }
+
+  static ChatMemory _chatFromRow(Map<String, Object?> row) {
+    Object? profile;
+    try {
+      profile = jsonDecode(row['profile_json'] as String? ?? '{}');
+    } on FormatException {
+      profile = null;
+    }
+    return ChatMemory(
+      id: (row['id']! as num).toInt(),
+      myName: row['my_name'] as String? ?? '',
+      theirName: row['their_name'] as String? ?? '',
+      embeddingModel: row['embedding_model'] as String? ?? '',
+      dimensions: (row['dimensions'] as num?)?.toInt() ?? 0,
+      builtAt: DateTime.fromMillisecondsSinceEpoch(
+        (row['built_at'] as num?)?.toInt() ?? 0,
+      ),
+      enabled: (row['enabled'] as num?)?.toInt() != 0,
+      exchangeCount: (row['n'] as num?)?.toInt() ?? 0,
+      savedCount: (row['saved'] as num?)?.toInt() ?? 0,
+      profile: StyleProfile.fromJson(profile),
+    );
+  }
+
+  @override
+  Future<ChatMemory> saveChat(
+    ChatMemory chat, {
+    List<StoredExchange> added = const [],
+    bool replaceExisting = false,
   }) async {
     final db = await _open();
+    late int chatId;
     await db.transaction((txn) async {
-      await txn.delete('exchanges');
+      final values = {
+        'my_name': chat.myName,
+        'their_name': chat.theirName,
+        'embedding_model': chat.embeddingModel,
+        'dimensions': chat.dimensions,
+        'built_at': chat.builtAt.millisecondsSinceEpoch,
+        'enabled': chat.enabled ? 1 : 0,
+        'profile_json': jsonEncode(chat.profile.toJson()),
+      };
+      if (chat.id < 0) {
+        chatId = await txn.insert('chats', values);
+      } else {
+        chatId = chat.id;
+        await txn.update('chats', values, where: 'id = ?', whereArgs: [chatId]);
+      }
+      if (replaceExisting) {
+        await txn.delete(
+          'exchanges',
+          where: 'chat_id = ?',
+          whereArgs: [chatId],
+        );
+      }
       final batch = txn.batch();
-      for (final exchange in exchanges) {
+      for (final exchange in added) {
         batch.insert('exchanges', {
+          'chat_id': chatId,
+          'hash': exchange.hash,
+          'source': exchange.source.name,
           'context_json': jsonEncode(
             exchange.context.map((t) => t.toJson()).toList(),
           ),
@@ -77,106 +286,164 @@ class SqfliteExchangeStore implements ExchangeStore {
         });
       }
       await batch.commit(noResult: true);
-
-      await txn.delete('meta');
-      await txn.insert('meta', {
-        'key': 'stats',
-        'value': jsonEncode({
-          'exchangeCount': stats.exchangeCount,
-          'embeddingModel': stats.embeddingModel,
-          'dimensions': stats.dimensions,
-          'myName': stats.myName,
-          'theirName': stats.theirName,
-          'builtAt': stats.builtAt.toIso8601String(),
-        }),
-      });
     });
-    _cache = null;
+    _cache.remove(chatId);
+    final saved = (await chats()).where((c) => c.id == chatId);
+    return saved.isEmpty ? chat.copyWith(id: chatId) : saved.first;
   }
 
   @override
-  Future<StyleMemoryStats?> stats() async {
+  Future<Set<String>> hashesFor(int chatId) async {
     final db = await _open();
     final rows = await db.query(
-      'meta',
-      where: 'key = ?',
-      whereArgs: ['stats'],
-      limit: 1,
+      'exchanges',
+      columns: ['hash'],
+      where: 'chat_id = ?',
+      whereArgs: [chatId],
     );
-    if (rows.isEmpty) return null;
-    final decoded = jsonDecode(rows.first['value']! as String);
-    if (decoded is! Map) return null;
-    final builtAt = DateTime.tryParse(decoded['builtAt'] as String? ?? '');
-    return StyleMemoryStats(
-      exchangeCount: (decoded['exchangeCount'] as num?)?.toInt() ?? 0,
-      embeddingModel: decoded['embeddingModel'] as String? ?? '',
-      dimensions: (decoded['dimensions'] as num?)?.toInt() ?? 0,
-      myName: decoded['myName'] as String? ?? '',
-      theirName: decoded['theirName'] as String? ?? '',
-      builtAt: builtAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+    return {for (final row in rows) row['hash']! as String};
+  }
+
+  @override
+  Future<void> setChatEnabled(int chatId, {required bool enabled}) async {
+    final db = await _open();
+    await db.update(
+      'chats',
+      {'enabled': enabled ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [chatId],
     );
   }
 
   @override
-  Future<int> count() async {
-    final cached = _cache;
-    if (cached != null) return cached.length;
+  Future<void> deleteChat(int chatId) async {
     final db = await _open();
-    final result = await db.rawQuery('SELECT COUNT(*) AS n FROM exchanges');
+    await db.transaction((txn) async {
+      await txn.delete('exchanges', where: 'chat_id = ?', whereArgs: [chatId]);
+      await txn.delete('chats', where: 'id = ?', whereArgs: [chatId]);
+    });
+    _cache.remove(chatId);
+  }
+
+  // ----------------------------------------------------------------- exchanges
+
+  @override
+  Future<int> count({Set<int>? chatIds}) async {
+    if (chatIds != null && chatIds.isEmpty) return 0;
+    final db = await _open();
+    final where = _inClause(chatIds);
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM exchanges${where == null ? "" : " WHERE $where"}',
+      chatIds?.toList(),
+    );
     return (result.first['n'] as num?)?.toInt() ?? 0;
   }
 
   @override
-  Future<List<StoredExchange>> all() async {
-    final cached = _cache;
-    if (cached != null) return cached;
+  Future<List<StoredExchange>> all({Set<int>? chatIds}) async {
+    if (chatIds != null && chatIds.isEmpty) return const [];
     final db = await _open();
-    final rows = await db.query('exchanges', orderBy: 'id ASC');
-    final exchanges = rows.map(_fromRow).toList(growable: false);
-    _cache = exchanges;
-    return exchanges;
+    final wanted =
+        chatIds ??
+        {
+          for (final row in await db.query('chats', columns: ['id']))
+            (row['id']! as num).toInt(),
+        };
+    final missing = wanted.where((id) => !_cache.containsKey(id)).toSet();
+    if (missing.isNotEmpty) {
+      final rows = await db.query(
+        'exchanges',
+        where: _inClause(missing),
+        whereArgs: missing.toList(),
+        orderBy: 'id ASC',
+      );
+      for (final id in missing) {
+        _cache[id] = <StoredExchange>[];
+      }
+      for (final row in rows) {
+        final exchange = _fromRow(row);
+        _cache[exchange.chatId]!.add(exchange);
+      }
+    }
+    final out = <StoredExchange>[for (final id in wanted) ...?_cache[id]]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    return out;
+  }
+
+  static String? _inClause(Set<int>? ids) => ids == null
+      ? null
+      : 'chat_id IN (${List.filled(ids.length, '?').join(', ')})';
+
+  // ------------------------------------------------------------------ feedback
+
+  @override
+  Future<void> recordFeedback(SuggestionFeedback feedback) async {
+    final db = await _open();
+    await db.insert('feedback', {
+      'at': feedback.at.millisecondsSinceEpoch,
+      'chat_id': feedback.chatId,
+      'picked_index': feedback.pickedIndex,
+      'picked_text': feedback.pickedText,
+      'saved': feedback.saved ? 1 : 0,
+      'extra_json': jsonEncode(feedback.toJson()),
+    });
   }
 
   @override
-  Future<List<ScoredExchange>> mostSimilar(
-    Float32List query, {
-    int limit = 8,
-  }) async {
-    final exchanges = await all();
-    if (exchanges.isEmpty || limit < 1) return const [];
-
-    final vectors = exchanges.map((e) => e.vector).toList(growable: false);
-    // A dimension mismatch means the memory predates a settings change; let
-    // VectorMath's ArgumentError surface so the UI can say "rebuild it".
-    final indices = VectorMath.topK(query, vectors, limit);
-    return indices
-        .map(
-          (i) => ScoredExchange(
-            exchange: exchanges[i],
-            similarity: VectorMath.dot(query, vectors[i]),
-          ),
-        )
-        .toList(growable: false);
+  Future<List<SuggestionFeedback>> feedback() async {
+    final db = await _open();
+    final rows = await db.query('feedback', orderBy: 'id DESC');
+    return [
+      for (final row in rows)
+        () {
+          Object? extra;
+          try {
+            extra = jsonDecode(row['extra_json'] as String? ?? '{}');
+          } on FormatException {
+            extra = null;
+          }
+          final map = extra is Map ? extra : const {};
+          return SuggestionFeedback(
+            id: (row['id']! as num).toInt(),
+            at: DateTime.fromMillisecondsSinceEpoch(
+              (row['at'] as num?)?.toInt() ?? 0,
+            ),
+            chatId: (row['chat_id'] as num?)?.toInt(),
+            pickedIndex: (row['picked_index'] as num?)?.toInt(),
+            pickedText: row['picked_text'] as String?,
+            saved: (row['saved'] as num?)?.toInt() == 1,
+            shownKinds: SuggestionFeedback.kindsFromJson(map['shownKinds']),
+            refinements: [
+              ...?(map['refinements'] as List?)?.whereType<String>(),
+            ],
+            hadNote: map['hadNote'] == true,
+          );
+        }(),
+    ];
   }
+
+  // ------------------------------------------------------------------- wiping
 
   @override
   Future<void> deleteEverything() async {
     final db = await _open();
     await db.transaction((txn) async {
       await txn.delete('exchanges');
+      await txn.delete('chats');
+      await txn.delete('feedback');
       await txn.delete('meta');
     });
-    _cache = null;
+    _cache.clear();
     await db.close();
     _database = null;
     // Drop the file too, so "delete all my data" leaves nothing behind.
-    await deleteDatabase(p.join(await getDatabasesPath(), databaseName));
+    if (!inMemory) await _db.deleteDatabase(await _path());
   }
 
   Future<void> close() async {
     await _database?.close();
     _database = null;
-    _cache = null;
+    _cache.clear();
   }
 
   static StoredExchange _fromRow(Map<String, Object?> row) {
@@ -190,6 +457,11 @@ class SqfliteExchangeStore implements ExchangeStore {
     final ts = row['ts'];
     return StoredExchange(
       id: (row['id'] as num?)?.toInt() ?? -1,
+      chatId: (row['chat_id'] as num?)?.toInt() ?? -1,
+      hash: row['hash'] as String? ?? '',
+      source: row['source'] == 'saved'
+          ? ExchangeSource.saved
+          : ExchangeSource.export,
       context: context,
       contextText: row['context_text']! as String,
       replyText: row['reply']! as String,

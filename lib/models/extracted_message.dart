@@ -10,15 +10,27 @@ enum Speaker {
 /// One message read off a conversation screenshot. Editable before generating,
 /// because vision models do misread bubble alignment.
 class ExtractedMessage {
-  const ExtractedMessage({required this.speaker, required this.text});
+  const ExtractedMessage({
+    required this.speaker,
+    required this.text,
+    this.quoted,
+  });
 
   final Speaker speaker;
+
+  /// What was typed in the bubble — never the quoted message above it.
   final String text;
 
-  ExtractedMessage copyWith({Speaker? speaker, String? text}) =>
+  /// For a WhatsApp reply, the message it quotes (the small box at the top of
+  /// the bubble). Shown for context only: it was not written by this sender
+  /// in this bubble, so it is never part of [text] or of the prompt.
+  final String? quoted;
+
+  ExtractedMessage copyWith({Speaker? speaker, String? text, String? quoted}) =>
       ExtractedMessage(
         speaker: speaker ?? this.speaker,
         text: text ?? this.text,
+        quoted: quoted ?? this.quoted,
       );
 
   /// Parses one `{"sender": "me"|"them", "text": "..."}` entry.
@@ -43,10 +55,21 @@ class ExtractedMessage {
       'them' || 'other' || 'they' => Speaker.them,
       _ => throw FormatException('unknown sender "$sender"'),
     };
-    return ExtractedMessage(speaker: speaker, text: text.trim());
+    final quoted = raw['quoted'] ?? raw['quote'] ?? raw['reply_to'];
+    return ExtractedMessage(
+      speaker: speaker,
+      text: text.trim(),
+      quoted: quoted is String && quoted.trim().isNotEmpty
+          ? quoted.trim()
+          : null,
+    );
   }
 
-  Map<String, Object?> toJson() => {'sender': speaker.name, 'text': text};
+  Map<String, Object?> toJson() => {
+    'sender': speaker.name,
+    'text': text,
+    if (quoted != null) 'quoted': quoted,
+  };
 
   @override
   String toString() => '${speaker.name}: $text';

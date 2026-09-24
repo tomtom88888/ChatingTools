@@ -1,32 +1,63 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/app_settings.dart';
+import '../models/chat_turn.dart';
 import '../models/extracted_message.dart';
 import '../models/reply_suggestion.dart';
 import '../models/stored_exchange.dart';
+import '../models/style_profile.dart';
+import '../models/suggestion_feedback.dart';
+import '../services/exchange_store.dart';
+import '../services/pasted_conversation.dart';
 import '../services/reply_generator.dart';
+import '../services/share_intake.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
+import '../widgets/format.dart';
+import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
+import 'generate/generate_parts.dart';
+import 'generate/reply_card.dart';
+import 'generate/transcript.dart';
 import 'retrieved_exchanges_screen.dart';
 
-/// Pick a screenshot, check what was read off it, take one of three replies.
+/// Pick a screenshot (or paste the chat), check what was read, take one of
+/// the suggested replies.
 class GenerateScreen extends ConsumerStatefulWidget {
-  const GenerateScreen({super.key});
+  const GenerateScreen({this.sharedScreenshot, super.key});
+
+  /// Set when a screenshot was shared into the app.
+  final SharedScreenshot? sharedScreenshot;
 
   @override
   ConsumerState<GenerateScreen> createState() => _GenerateScreenState();
 }
 
 class _GenerateScreenState extends ConsumerState<GenerateScreen> {
+  /// Read up front: feedback is recorded from dispose, when `ref` is gone.
+  late final ExchangeStore _store;
+
   Uint8List? _screenshot;
+  bool _pasted = false;
   List<ExtractedMessage> _messages = [];
+
+  /// Who this reply is to. `null` means someone the app has no chat for: the
+  /// voice still comes from the ticked chats.
+  ChatMemory? _replyingTo;
+  bool _choseChat = false;
+
   List<ReplySuggestion> _variants = [];
   List<ScoredExchange> _examples = [];
+  List<ChatMemory> _skipped = [];
+  List<ChatTurn> _conversation = [];
+  StyleProfile _profile = StyleProfile.empty;
 
   /// A one-off instruction for this reply: what to say, as opposed to how.
   /// Cleared with the screenshot, because it belongs to this moment.
@@ -36,23 +67,109 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   bool _reading = false;
   bool _generating = false;
   bool _fixing = false;
-  int? _copiedIndex;
   Object? _error;
+
+  // Per-suggestion state for the set on screen.
+  final Map<int, int> _bubblesCopied = {};
+  final Set<int> _saved = {};
+  int? _savingIndex;
+  int? _refiningIndex;
+  Refinement? _refining;
+
+  // What happens to this set, for the feedback log.
+  int? _pickedIndex;
+  final List<String> _refinementsAsked = [];
+
+  /// The ticked chats as of the last build, for [_recordFeedback], which can
+  /// run from dispose when providers can no longer be read.
+  List<ChatMemory> _lastEnabled = const [];
+
+  bool get _hasSource => _screenshot != null || _pasted;
+
+  @override
+  void initState() {
+    super.initState();
+    _store = ref.read(exchangeStoreProvider);
+    final shared = widget.sharedScreenshot;
+    if (shared != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          final bytes = await File(shared.path).readAsBytes();
+          if (mounted) await _useScreenshot(bytes, shared.mimeType);
+        } on Object catch (error) {
+          if (mounted) setState(() => _error = error);
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _recordFeedback();
     _noteController.dispose();
     super.dispose();
   }
 
-  void _commitNote() {
-    final next = _noteController.text.trim();
-    if (next == _note) return;
+  // ------------------------------------------------------------------ chats
+
+  /// The ticked chats, and who the reply is to unless you picked otherwise.
+  List<ChatMemory> _enabledChats() {
+    final chats = ref.read(chatsProvider).value ?? const <ChatMemory>[];
+    return chats.where((c) => c.enabled && !c.isEmpty).toList();
+  }
+
+  ChatMemory? _defaultReplyingTo(List<ChatMemory> enabled) =>
+      enabled.isEmpty ? null : enabled.first;
+
+  Future<void> _pickChat() async {
+    final enabled = _enabledChats();
+    final picked = await pickReplyChat(
+      context,
+      chats: enabled,
+      current: _currentReplyingTo(enabled),
+    );
+    if (picked == null || !mounted) return;
     setState(() {
-      _note = next;
-      // The shown options no longer match the inputs.
-      _variants = [];
+      _choseChat = true;
+      _replyingTo = picked.chat;
+      _retireVariants();
     });
+  }
+
+  ChatMemory? _currentReplyingTo(List<ChatMemory> enabled) {
+    if (!_choseChat) return _defaultReplyingTo(enabled);
+    final chosen = _replyingTo;
+    if (chosen == null) return null;
+    for (final chat in enabled) {
+      if (chat.id == chosen.id) return chat;
+    }
+    // Unticked since it was chosen: fall back to the default.
+    return _defaultReplyingTo(enabled);
+  }
+
+  /// Settings with the names of the chat being replied in.
+  AppSettings _named(AppSettings settings, ChatMemory? chat) {
+    final me = chat?.myName ?? settings.myName;
+    return settings.copyWith(
+      myName: me.isEmpty ? 'Me' : me,
+      theirName: chat == null
+          ? 'Them'
+          : (chat.theirName.isEmpty ? 'Them' : chat.theirName),
+    );
+  }
+
+  // ---------------------------------------------------------------- sources
+
+  void _resetForNewSource() {
+    _recordFeedback();
+    _noteController.clear();
+    _messages = [];
+    _variants = [];
+    _examples = [];
+    _skipped = [];
+    _note = '';
+    _fixing = false;
+    _clearSetState();
   }
 
   Future<void> _pickScreenshot() async {
@@ -67,23 +184,62 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       );
       if (picked == null) return;
       final bytes = await picked.readAsBytes();
-      _noteController.clear();
-      setState(() {
-        _screenshot = bytes;
-        _messages = [];
-        _variants = [];
-        _examples = [];
-        _copiedIndex = null;
-        _note = '';
-      });
-      await _extract(bytes, picked.mimeType ?? _guessMimeType(picked.name));
+      await _useScreenshot(
+        bytes,
+        picked.mimeType ?? _guessMimeType(picked.name),
+      );
     } on Object catch (error) {
       if (mounted) setState(() => _error = error);
     }
   }
 
+  Future<void> _useScreenshot(Uint8List bytes, String mimeType) async {
+    setState(() {
+      _resetForNewSource();
+      _screenshot = bytes;
+      _pasted = false;
+    });
+    await _extract(bytes, mimeType);
+  }
+
   static String _guessMimeType(String name) =>
       name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+  Future<void> _paste() async {
+    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => TextEntryDialog(
+        title: 'Paste the conversation',
+        confirmLabel: 'Use this',
+        initialText: clipboard?.text ?? '',
+        hint: 'Sam: are you coming tonight?\nme: maybe',
+        minLines: 5,
+        maxLines: 10,
+        helper:
+            'Copy messages in WhatsApp (long-press, select, copy) and paste '
+            'them here, or type "Name: message" lines. Your lines start with '
+            'your name or "me:". You can fix sides next.',
+      ),
+    );
+    if (text == null || !mounted) return;
+
+    final settings = await ref.read(settingsProvider.future);
+    final me = _currentReplyingTo(_enabledChats())?.myName ?? settings.myName;
+    final messages = PastedConversation.parse(text, myName: me);
+    if (!mounted) return;
+    setState(() {
+      _resetForNewSource();
+      _screenshot = null;
+      _pasted = true;
+      _messages = messages;
+      _error = messages.isEmpty
+          ? Exception('There was nothing in that paste to reply to.')
+          : null;
+      if (messages.isEmpty) _pasted = false;
+    });
+  }
 
   Future<void> _extract(Uint8List bytes, String mimeType) async {
     final openai = ref.read(openAiServiceProvider);
@@ -108,21 +264,31 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     }
   }
 
+  // -------------------------------------------------------------- generating
+
+  void _commitNote() {
+    final next = _noteController.text.trim();
+    if (next == _note) return;
+    setState(() {
+      _note = next;
+      // The shown options no longer match the inputs.
+      _retireVariants();
+    });
+  }
+
   Future<void> _generate() async {
     final generator = ref.read(replyGeneratorProvider);
     final memory = ref.read(styleMemoryServiceProvider);
     if (generator == null || memory == null) return;
     final settings = await ref.read(settingsProvider.future);
-    final named = settings.copyWith(
-      myName: settings.myName.isEmpty ? 'Me' : settings.myName,
-      theirName: settings.theirName.isEmpty ? 'Them' : settings.theirName,
-    );
+    final enabled = _enabledChats();
+    final chat = _currentReplyingTo(enabled);
+    final named = _named(settings, chat);
 
     setState(() {
       _generating = true;
       _error = null;
-      _variants = [];
-      _copiedIndex = null;
+      _retireVariants();
     });
     try {
       final conversation = ReplyGenerator.turnsFrom(
@@ -130,21 +296,31 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         myName: named.myName,
         theirName: named.theirName,
       );
-      final examples = await memory.retrieve(
+      final retrieved = await memory.retrieve(
         context: conversation,
         embeddingModel: named.embeddingModel,
         dimensions: named.embeddingDimensions,
         limit: named.retrievedExampleCount,
+        chatIds: {for (final c in enabled) c.id},
       );
+      // The chat being replied in speaks loudest; with no chat, all the
+      // ticked ones together.
+      final profile = chat != null && !chat.profile.isEmpty
+          ? chat.profile
+          : StyleProfile.mergeAll(enabled.map((c) => c.profile));
       final variants = await generator.generate(
         conversation: conversation,
-        examples: examples,
+        examples: retrieved.examples,
         settings: named,
         note: _note,
+        profile: profile,
       );
       if (mounted) {
         setState(() {
-          _examples = examples;
+          _conversation = conversation;
+          _examples = retrieved.examples;
+          _skipped = retrieved.skipped;
+          _profile = profile;
           _variants = variants;
         });
       }
@@ -155,16 +331,146 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     }
   }
 
-  Future<void> _copy(int index) async {
-    await Clipboard.setData(ClipboardData(text: _variants[index].text));
-    if (!mounted) return;
-    setState(() => _copiedIndex = index);
-    showToast(
-      context,
-      'Copied. Go paste it.',
-      detail: "The app can't send it — you're leaving for WhatsApp now.",
-    );
+  Future<void> _refine(int index, Refinement refinement) async {
+    final generator = ref.read(replyGeneratorProvider);
+    if (generator == null) return;
+    final settings = await ref.read(settingsProvider.future);
+    final named = _named(settings, _currentReplyingTo(_enabledChats()));
+    setState(() {
+      _refiningIndex = index;
+      _refining = refinement;
+      _error = null;
+    });
+    try {
+      final rewritten = await generator.refine(
+        suggestion: _variants[index],
+        refinement: refinement,
+        conversation: _conversation,
+        examples: _examples,
+        settings: named,
+        note: _note,
+        profile: _profile,
+      );
+      if (!mounted) return;
+      setState(() {
+        _variants = [..._variants]..[index] = rewritten;
+        _bubblesCopied.remove(index);
+        _saved.remove(index);
+        _refinementsAsked.add(refinement.name);
+      });
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _refiningIndex = null;
+          _refining = null;
+        });
+      }
+    }
   }
+
+  // ------------------------------------------------------- copying & saving
+
+  Future<void> _copy(int index) async {
+    final bubbles = ReplyCard.bubblesOf(_variants[index].text);
+    final done = _bubblesCopied[index] ?? 0;
+    final split = bubbles.length > 1;
+    // After the last bubble, a further tap starts again from the first.
+    final next = split ? done % bubbles.length : 0;
+    final text = split ? bubbles[next] : _variants[index].text;
+
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    setState(() {
+      _bubblesCopied[index] = split ? next + 1 : 1;
+      _pickedIndex = index;
+    });
+    if (split && next + 1 < bubbles.length) {
+      showToast(
+        context,
+        'Bubble ${next + 1} of ${bubbles.length} copied.',
+        detail: 'Paste and send it, then come back for the next one.',
+      );
+    } else {
+      showToast(
+        context,
+        'Copied. Go paste it.',
+        detail: "The app can't send it — you're leaving for WhatsApp now.",
+      );
+    }
+  }
+
+  Future<void> _save(int index) async {
+    final memory = ref.read(styleMemoryServiceProvider);
+    final chat = _currentReplyingTo(_enabledChats());
+    if (memory == null || chat == null) return;
+    final settings = await ref.read(settingsProvider.future);
+    setState(() => _savingIndex = index);
+    try {
+      await memory.saveReply(
+        chat: chat,
+        conversation: _conversation,
+        reply: _variants[index].text,
+        contextTurns: settings.contextTurns,
+      );
+      await ref.read(chatsProvider.notifier).reload();
+      if (!mounted) return;
+      setState(() {
+        _saved.add(index);
+        _pickedIndex ??= index;
+      });
+      showToast(
+        context,
+        'Saved to ${chat.theirName.isEmpty ? "the chat" : chat.theirName}.',
+        detail: 'It will be used as an example of you from now on.',
+      );
+    } on Object catch (error) {
+      if (mounted) showFailureSnackBar(context, error);
+    } finally {
+      if (mounted) setState(() => _savingIndex = null);
+    }
+  }
+
+  // ----------------------------------------------------------------- feedback
+
+  /// Logs what happened to the set on screen — which option was taken, or
+  /// that none was — then forgets it. Called whenever the set is replaced.
+  void _recordFeedback() {
+    if (_variants.isEmpty) return;
+    final picked = _pickedIndex;
+    final feedback = SuggestionFeedback(
+      at: DateTime.now(),
+      chatId: _currentReplyingTo(_lastEnabled)?.id,
+      shownKinds: [for (final v in _variants) v.kind],
+      pickedIndex: picked,
+      pickedText: picked == null ? null : _variants[picked].text,
+      refinements: List.of(_refinementsAsked),
+      saved: picked != null && _saved.contains(picked),
+      hadNote: _note.isNotEmpty,
+    );
+    // Fire and forget: the log must never hold up the screen.
+    unawaited(_store.recordFeedback(feedback).catchError((Object _) {}));
+    _pickedIndex = null;
+    _refinementsAsked.clear();
+  }
+
+  void _clearSetState() {
+    _bubblesCopied.clear();
+    _saved.clear();
+    _savingIndex = null;
+    _refiningIndex = null;
+    _refining = null;
+  }
+
+  /// Takes the current suggestions off screen, logging what became of them.
+  void _retireVariants() {
+    _recordFeedback();
+    _variants = [];
+    _clearSetState();
+  }
+
+  // --------------------------------------------------------------- transcript
 
   void _flipAll() {
     setState(() {
@@ -174,7 +480,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
             speaker: m.speaker == Speaker.me ? Speaker.them : Speaker.me,
           ),
       ];
-      _variants = [];
+      _retireVariants();
       _error = null;
     });
   }
@@ -185,57 +491,19 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       _messages[index] = message.copyWith(
         speaker: message.speaker == Speaker.me ? Speaker.them : Speaker.me,
       );
-      _variants = [];
+      _retireVariants();
     });
   }
 
   Future<void> _editText(int index) async {
-    final controller = TextEditingController(text: _messages[index].text);
     final updated = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Paper.bg,
-        surfaceTintColor: Paper.bg,
-        shape: RoundedRectangleBorder(borderRadius: Corner.all(Corner.card)),
-        title: Text('Fix the text', style: Type.strong(size: 17)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: null,
-          style: Type.prose(size: 15, color: Paper.ink),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Paper.card,
-            border: OutlineInputBorder(
-              borderRadius: Corner.all(Corner.small),
-              borderSide: const BorderSide(color: Paper.border, width: 1.5),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: Corner.all(Corner.small),
-              borderSide: const BorderSide(color: Paper.border, width: 1.5),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: Corner.all(Corner.small),
-              borderSide: const BorderSide(color: Paper.accent, width: 1.5),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'Cancel',
-              style: Type.strong(size: 14, color: Paper.secondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: Text('Save', style: Type.strong(size: 14, color: Paper.accent)),
-          ),
-        ],
+      builder: (context) => TextEntryDialog(
+        title: 'Fix the text',
+        confirmLabel: 'Save',
+        initialText: _messages[index].text,
       ),
     );
-    controller.dispose();
     if (updated == null || !mounted) return;
     setState(() {
       if (updated.trim().isEmpty) {
@@ -243,14 +511,22 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       } else {
         _messages[index] = _messages[index].copyWith(text: updated.trim());
       }
-      _variants = [];
+      _retireVariants();
     });
   }
+
+  // -------------------------------------------------------------------- build
 
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
-    final them = settings.theirName.isEmpty ? 'them' : settings.theirName;
+    final enabled = [
+      for (final c in ref.watch(chatsProvider).value ?? const <ChatMemory>[])
+        if (c.enabled && !c.isEmpty) c,
+    ];
+    _lastEnabled = enabled;
+    final chat = _currentReplyingTo(enabled);
+    final named = _named(settings, chat);
     final ready = _messages.isNotEmpty && !_generating && !_reading;
     final lastIsMine =
         _messages.isNotEmpty && _messages.last.speaker == Speaker.me;
@@ -264,7 +540,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
               children: [
                 Expanded(
                   child: PaperAction(
-                    title: 'Three more',
+                    title: 'Try again',
                     centred: true,
                     radius: Corner.choice,
                     onTap: _generating ? null : _generate,
@@ -272,65 +548,92 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
                 ),
                 const SizedBox(width: 10),
                 PaperAction(
-                  title: 'New shot',
+                  title: 'New chat',
                   centred: true,
                   tone: ActionTone.outline,
                   radius: Corner.choice,
-                  onTap: _pickScreenshot,
+                  onTap: () => setState(() {
+                    _resetForNewSource();
+                    _screenshot = null;
+                    _pasted = false;
+                  }),
                 ),
               ],
             ),
       children: [
-        _Header(
-          them: them,
+        GenerateHeader(
+          them: chat == null ? 'someone new' : named.theirName,
           onBack: () => Navigator.of(context).pop(),
-          onChangeShot: _screenshot == null ? null : _pickScreenshot,
+          onChangeSource: _hasSource
+              ? () => setState(() {
+                  _resetForNewSource();
+                  _screenshot = null;
+                  _pasted = false;
+                })
+              : null,
+          onPickChat: enabled.isEmpty ? null : _pickChat,
         ),
         if (_error != null)
-          _Refusal(
+          Refusal(
             error: _error!,
             onFlipAll: lastIsMine ? _flipAll : null,
-            onFix: _messages.isEmpty ? null : () => setState(() => _fixing = true),
+            onFix: _messages.isEmpty
+                ? null
+                : () => setState(() => _fixing = true),
           ),
-        if (_screenshot == null)
-          _EmptyState(onPick: _pickScreenshot)
+        if (!_hasSource)
+          EmptyState(onPick: _pickScreenshot, onPaste: _paste)
         else if (_reading)
-          const _ReadingState()
+          const ReadingState()
         else if (_messages.isNotEmpty)
-          _Transcript(
+          Transcript(
             messages: _messages,
-            settings: settings,
+            settings: named,
             fixing: _fixing,
             onToggleFixing: () => setState(() => _fixing = !_fixing),
             onToggleSide: _toggleSide,
             onEdit: _editText,
           ),
         if (_messages.isNotEmpty && !_generating)
-          _NoteField(
-            controller: _noteController,
-            onCommit: _commitNote,
-          ),
+          NoteField(controller: _noteController, onCommit: _commitNote),
         if (_messages.isNotEmpty && _variants.isEmpty && !_generating)
           PaperAction(
-            title: 'Write ${settings.variantCount} replies',
+            title:
+                'Write ${settings.variantCount} '
+                '${settings.variantCount == 1 ? "reply" : "replies"}',
             centred: true,
             tone: ActionTone.accent,
             onTap: ready ? _generate : null,
           ),
-        if (_generating) const _GeneratingState(),
+        if (_generating) const GeneratingState(),
         if (_variants.isNotEmpty) ...[
-          SerifTitle('Three ways you’d answer that', size: 22),
+          SerifTitle(
+            _variants.length == 1
+                ? 'How you’d answer that'
+                : '${_countWord(_variants.length)} ways you’d answer that',
+            size: 22,
+          ),
           for (var i = 0; i < _variants.length; i++)
-            _ReplyCard(
+            ReplyCard(
+              key: ValueKey('reply-$i'),
               suggestion: _variants[i],
-              copied: _copiedIndex == i,
               provenance: _provenance(i),
+              bubblesCopied: _bubblesCopied[i] ?? 0,
               onCopy: () => _copy(i),
+              onRefine: (r) => _refine(i, r),
+              refining: _refiningIndex == i ? _refining : null,
+              saved: _saved.contains(i),
+              saving: _savingIndex == i,
+              onSave: chat == null || _savingIndex != null
+                  ? null
+                  : () => _save(i),
             ),
-          _Provenance(
+          Provenance(
             examples: _examples,
+            skipped: _skipped,
             model: settings.effectiveGenerationModel,
-            mode: settings.mode == TrainingMode.fineTune &&
+            mode:
+                settings.mode == TrainingMode.fineTune &&
                     settings.hasFineTunedModel
                 ? 'fine-tuned model'
                 : 'style memory',
@@ -338,10 +641,8 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
               MaterialPageRoute<void>(
                 builder: (_) => RetrievedExchangesScreen(
                   examples: _examples,
-                  myName: settings.myName.isEmpty ? 'Me' : settings.myName,
-                  theirName: settings.theirName.isEmpty
-                      ? 'Them'
-                      : settings.theirName,
+                  myName: named.myName,
+                  theirName: named.theirName,
                 ),
               ),
             ),
@@ -350,597 +651,24 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
       ],
     );
   }
+
+  static String _countWord(int n) => switch (n) {
+    2 => 'Two',
+    3 => 'Three',
+    4 => 'Four',
+    5 => 'Five',
+    6 => 'Six',
+    _ => '$n',
+  };
 
   /// The design labels each reply with its shape and the date of the example it
   /// most resembles; without a match it says only how long it is.
   String _provenance(int index) {
-    final lines = _variants[index].text.split('\n').length;
-    final unit = lines == 1 ? 'line' : 'lines';
-    if (_examples.isEmpty) return '$lines $unit';
+    final bubbles = ReplyCard.bubblesOf(_variants[index].text).length;
+    final unit = bubbles == 1 ? 'line' : 'lines';
+    if (_examples.isEmpty) return '$bubbles $unit';
     final when = _examples[index % _examples.length].exchange.timestamp;
-    if (when == null) return '$lines $unit · like you before';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '$lines $unit · like you on '
-        '${when.day} ${months[when.month - 1]}';
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.them,
-    required this.onBack,
-    required this.onChangeShot,
-  });
-
-  final String them;
-  final VoidCallback onBack;
-  final VoidCallback? onChangeShot;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      GestureDetector(
-        onTap: onBack,
-        child: const Text(
-          '←',
-          style: TextStyle(fontSize: 19, color: Paper.secondary),
-        ),
-      ),
-      Expanded(
-        child: Center(
-          child: Text(
-            'Replying to ${bidiIsolate(them)}',
-            style: Type.strong(size: 15, height: 1.3),
-          ),
-        ),
-      ),
-      GestureDetector(
-        onTap: onChangeShot,
-        child: Text(
-          'Change shot',
-          style: Type.prose(
-            size: 12,
-            color: onChangeShot == null ? Paper.muted : Paper.accent,
-            height: 1.3,
-            weight: FontWeight.w500,
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onPick});
-
-  final VoidCallback onPick;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      PaperPanel(
-        radius: Corner.hero,
-        padding: const EdgeInsets.fromLTRB(22, 26, 22, 26),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SerifTitle('Screenshot the chat as it stands.', size: 30),
-            const SizedBox(height: 10),
-            Text(
-              'A straight screenshot of the conversation works best — not '
-              'a crop, and not a photo of a screen. It reads who said what off '
-              'which side the bubbles sit on.',
-              style: Type.prose(size: 14.5),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 16),
-      PaperAction(
-        title: 'Pick a screenshot',
-        centred: true,
-        tone: ActionTone.accent,
-        onTap: onPick,
-      ),
-    ],
-  );
-}
-
-class _ReadingState extends StatelessWidget {
-  const _ReadingState();
-
-  @override
-  Widget build(BuildContext context) => PaperPanel(
-    padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const MonoLabel('Reading the screenshot', spacing: 0.12),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: Corner.all(Corner.pill),
-          child: const LinearProgressIndicator(minHeight: 4),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Working out who said what, oldest first.',
-          style: Type.prose(size: 13, color: Paper.body, height: 1.45),
-        ),
-      ],
-    ),
-  );
-}
-
-class _GeneratingState extends StatelessWidget {
-  const _GeneratingState();
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      for (var i = 0; i < 3; i++) ...[
-        if (i > 0) const SizedBox(height: 10),
-        Container(
-          height: 92,
-          decoration: BoxDecoration(
-            color: Paper.card,
-            borderRadius: Corner.all(Corner.card),
-            boxShadow: Paper.liftCard,
-          ),
-        ),
-      ],
-    ],
-  );
-}
-
-/// What the vision model read, and the correction affordances.
-class _Transcript extends StatelessWidget {
-  const _Transcript({
-    required this.messages,
-    required this.settings,
-    required this.fixing,
-    required this.onToggleFixing,
-    required this.onToggleSide,
-    required this.onEdit,
-  });
-
-  final List<ExtractedMessage> messages;
-  final AppSettings settings;
-  final bool fixing;
-  final VoidCallback onToggleFixing;
-  final ValueChanged<int> onToggleSide;
-  final ValueChanged<int> onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    // Collapsed, the transcript shows only the tail — the exchange being
-    // replied to. Fixing shows every message with its controls.
-    final visible = fixing || messages.length <= 3
-        ? messages
-        : messages.sublist(messages.length - 3);
-    final hidden = messages.length - visible.length;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: MonoLabel(
-                'It read ${messages.length} '
-                '${messages.length == 1 ? "message" : "messages"}',
-                spacing: 0.12,
-              ),
-            ),
-            GestureDetector(
-              onTap: onToggleFixing,
-              child: Text(
-                fixing ? 'Done fixing' : 'Fix the reading',
-                style: Type.prose(
-                  size: 12,
-                  color: Paper.accent,
-                  height: 1.3,
-                  weight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 9),
-        PaperPanel(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (hidden > 0) ...[
-                Text(
-                  '…$hidden earlier',
-                  style: Type.prose(
-                    size: 12,
-                    color: Paper.muted,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 7),
-              ],
-              for (var i = 0; i < visible.length; i++)
-                _TranscriptLine(
-                  message: visible[i],
-                  settings: settings,
-                  fixing: fixing,
-                  onToggleSide: () =>
-                      onToggleSide(messages.length - visible.length + i),
-                  onEdit: () => onEdit(messages.length - visible.length + i),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TranscriptLine extends StatelessWidget {
-  const _TranscriptLine({
-    required this.message,
-    required this.settings,
-    required this.fixing,
-    required this.onToggleSide,
-    required this.onEdit,
-  });
-
-  final ExtractedMessage message;
-  final AppSettings settings;
-  final bool fixing;
-  final VoidCallback onToggleSide;
-  final VoidCallback onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final mine = message.speaker == Speaker.me;
-    final bubble = GestureDetector(
-      onTap: fixing ? onEdit : null,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.62,
-        ),
-        padding: const EdgeInsets.fromLTRB(11, 8, 11, 8),
-        decoration: BoxDecoration(
-          color: mine ? Paper.ink : Paper.card,
-          borderRadius: BorderRadius.only(
-            topLeft: Corner.bubble,
-            topRight: Corner.bubble,
-            bottomLeft: mine ? Corner.bubble : const Radius.circular(4),
-            bottomRight: mine ? const Radius.circular(4) : Corner.bubble,
-          ),
-        ),
-        child: Text(
-          message.text,
-          style: Type.prose(
-            size: 13.5,
-            color: mine ? Paper.onInk : Paper.ink,
-            height: 1.4,
-          ),
-        ),
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Row(
-        mainAxisAlignment:
-            mine ? MainAxisAlignment.end : MainAxisAlignment.start,
-        children: [
-          if (mine && fixing) _SideToggle(onTap: onToggleSide, mine: true),
-          bubble,
-          if (!mine && fixing) _SideToggle(onTap: onToggleSide, mine: false),
-        ],
-      ),
-    );
-  }
-}
-
-/// The correction that matters most: which side a message came from.
-class _SideToggle extends StatelessWidget {
-  const _SideToggle({required this.onTap, required this.mine});
-
-  final VoidCallback onTap;
-  final bool mine;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      margin: EdgeInsets.only(right: mine ? 8 : 0, left: mine ? 0 : 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Paper.card,
-        borderRadius: Corner.all(Corner.pill),
-        border: Border.all(color: Paper.border),
-      ),
-      child: Text(
-        mine ? '→ them' : 'me ←',
-        style: Type.prose(
-          size: 11,
-          color: Paper.secondary,
-          height: 1.2,
-          weight: FontWeight.w500,
-        ),
-      ),
-    ),
-  );
-}
-
-class _ReplyCard extends StatelessWidget {
-  const _ReplyCard({
-    required this.suggestion,
-    required this.copied,
-    required this.provenance,
-    required this.onCopy,
-  });
-
-  final ReplySuggestion suggestion;
-  final bool copied;
-  final String provenance;
-  final VoidCallback onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final changesSubject = suggestion.isNewTopic;
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: PaperCard(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // What this option is for. The one that changes the subject is
-            // marked in the accent colour because it is the odd one out, and
-            // picking it by accident would send the conversation sideways.
-            Row(
-              children: [
-                if (changesSubject)
-                  Container(
-                    width: 5,
-                    height: 5,
-                    margin: const EdgeInsets.only(right: 7),
-                    decoration: const BoxDecoration(
-                      color: Paper.accent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                MonoLabel(
-                  suggestion.kind.label,
-                  size: 10.5,
-                  spacing: 0.14,
-                  color: changesSubject ? Paper.accent : Paper.muted,
-                ),
-              ],
-            ),
-            const SizedBox(height: 9),
-            Text(
-              suggestion.text,
-              style: Type.prose(size: 15.5, color: Paper.ink, height: 1.5),
-            ),
-            const SizedBox(height: 11),
-            Container(
-              padding: const EdgeInsets.only(top: 10),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Paper.divider)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      provenance,
-                      style: Type.numeric(
-                        size: 11.5,
-                        color: Paper.muted,
-                        weight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: onCopy,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: copied ? Paper.green : Paper.ink,
-                        borderRadius: Corner.all(Corner.pill),
-                      ),
-                      child: Text(
-                        copied ? 'Copied' : 'Copy',
-                        style: Type.strong(size: 13, color: Paper.onInk),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A one-off instruction for this reply.
-///
-/// The retrieved examples decide how a message is written; this decides what
-/// it says. It is deliberately per-screenshot rather than a saved setting,
-/// because it is about this moment in the conversation.
-class _NoteField extends StatelessWidget {
-  const _NoteField({required this.controller, required this.onCommit});
-
-  final TextEditingController controller;
-  final VoidCallback onCommit;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const MonoLabel('Anything it should know', spacing: 0.12),
-      const SizedBox(height: 8),
-      TextField(
-        controller: controller,
-        maxLines: null,
-        minLines: 2,
-        textCapitalization: TextCapitalization.sentences,
-        style: Type.prose(size: 14, color: Paper.ink, height: 1.45),
-        onTapOutside: (_) => onCommit(),
-        onEditingComplete: onCommit,
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: Paper.card,
-          hintText: "say I'll be late \u00b7 keep it short \u00b7 ask about "
-              'the weekend',
-          hintStyle: Type.prose(size: 14, color: Paper.placeholder),
-          contentPadding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          border: OutlineInputBorder(
-            borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.border, width: 1.5),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.border, width: 1.5),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: Corner.all(Corner.small),
-            borderSide: const BorderSide(color: Paper.accent, width: 1.5),
-          ),
-        ),
-      ),
-      const SizedBox(height: 6),
-      Text(
-        'Optional. This decides what the message says; your past replies still '
-        'decide how it sounds.',
-        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
-      ),
-    ],
-  );
-}
-
-/// Where the replies came from — and the way into reading it.
-class _Provenance extends StatelessWidget {
-  const _Provenance({
-    required this.examples,
-    required this.model,
-    required this.mode,
-    required this.onInspect,
-  });
-
-  final List<ScoredExchange> examples;
-  final String model;
-  final String mode;
-  final VoidCallback onInspect;
-
-  @override
-  Widget build(BuildContext context) {
-    final none = examples.isEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (none)
-          const Notice(
-            'No past exchange resembled this one. These are a general '
-            "model's guesses, not your voice.",
-            tone: NoticeTone.caution,
-            title: 'Nothing similar in your memory',
-          )
-        else
-          emphasised(
-            'Built from *${examples.length} past '
-            '${examples.length == 1 ? "exchange" : "exchanges"}* that looked '
-            'like this one — closest match '
-            '${examples.first.similarity.toStringAsFixed(2)}.',
-            size: 12.5,
-            color: Paper.tertiary,
-          ),
-        const SizedBox(height: 6),
-        Text(
-          'written by $model · $mode',
-          style: Type.numeric(
-            size: 12.5,
-            color: Paper.muted,
-            weight: FontWeight.w400,
-          ),
-        ),
-        const SizedBox(height: 12),
-        // The app showing its working: the retrieved conversations are the
-        // whole reason the replies sound like the user, so they are readable.
-        PaperAction(
-          title: none
-              ? 'See why nothing matched'
-              : 'Read the ${examples.length} chats it drew on',
-          subtitle: none
-              ? 'What retrieval looked for'
-              : 'Your real exchanges, closest first',
-          tone: ActionTone.outline,
-          onTap: onInspect,
-        ),
-      ],
-    );
-  }
-}
-
-/// The three refusals, each with the way out the design gives it.
-class _Refusal extends StatelessWidget {
-  const _Refusal({required this.error, this.onFlipAll, this.onFix});
-
-  final Object error;
-  final VoidCallback? onFlipAll;
-  final VoidCallback? onFix;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = describeFailure(error);
-    final sidesLikelyBackwards = onFlipAll != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Notice(
-          sidesLikelyBackwards
-              ? 'The last message reads as yours, so there’s nothing to '
-                    'reply to. Usually the sides came out backwards.'
-              : message,
-          tone: NoticeTone.failure,
-        ),
-        if (sidesLikelyBackwards) ...[
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: PaperAction(
-                  title: 'Flip everything',
-                  centred: true,
-                  radius: Corner.small,
-                  onTap: onFlipAll,
-                ),
-              ),
-              if (onFix != null) ...[
-                const SizedBox(width: 10),
-                Expanded(
-                  child: PaperAction(
-                    title: 'Fix the reading',
-                    centred: true,
-                    tone: ActionTone.outline,
-                    radius: Corner.small,
-                    onTap: onFix,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ],
-    );
+    if (when == null) return '$bubbles $unit · like you before';
+    return '$bubbles $unit · like you on ${dayMonth(when)}';
   }
 }

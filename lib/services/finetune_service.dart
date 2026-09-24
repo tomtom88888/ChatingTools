@@ -51,15 +51,24 @@ class FineTuneService {
   /// Each line is a system message describing you texting them, the previous
   /// turns as alternating user/assistant messages, and your real reply as the
   /// final assistant message — the target the model learns to produce.
+  ///
+  /// With several chats in the dataset, [chats] gives each exchange the names
+  /// from its own chat; [myName] and [theirName] cover anything not in it.
   static String buildJsonl(
     List<StoredExchange> exchanges, {
     required String myName,
     required String theirName,
     required int contextTurns,
+    Map<int, ChatMemory> chats = const {},
   }) {
     final lines = <String>[];
     for (final exchange in exchanges) {
       if (exchange.replyText.trim().isEmpty) continue;
+      final chat = chats[exchange.chatId];
+      final me = chat == null || chat.myName.isEmpty ? myName : chat.myName;
+      final them = chat == null || chat.theirName.isEmpty
+          ? theirName
+          : chat.theirName;
 
       final context = exchange.context.length > contextTurns
           ? exchange.context.sublist(exchange.context.length - contextTurns)
@@ -67,10 +76,10 @@ class FineTuneService {
       if (context.isEmpty) continue;
 
       final messages = <Map<String, String>>[
-        {'role': 'system', 'content': systemMessage(myName, theirName)},
+        {'role': 'system', 'content': systemMessage(me, them)},
         for (final turn in context)
           {
-            'role': turn.sender == myName ? 'assistant' : 'user',
+            'role': turn.sender == me ? 'assistant' : 'user',
             'content': turn.text,
           },
         {'role': 'assistant', 'content': exchange.replyText},
