@@ -30,29 +30,30 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
     final feedback = ref.watch(feedbackProvider);
 
     return PaperScreen(
-      gap: 16,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: const Text(
-              '←',
-              style: TextStyle(fontSize: 19, color: Paper.secondary),
+        Row(
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: const Text(
+                '←',
+                style: TextStyle(fontSize: 19, color: Paper.secondary),
+              ),
             ),
-          ),
+            const SizedBox(width: 14),
+            const MonoLabel('Chat data'),
+          ],
         ),
-        const SerifTitle('Chat data', size: 34),
         ...chats.when(
           loading: () => [const LinearProgressIndicator(minHeight: 3)],
           error: (error, _) => [FailureNotice(error: error)],
           data: (all) {
             if (all.isEmpty) {
               return [
+                const SerifTitle('Nothing to count yet.', size: 34),
                 const Notice(
                   'Import a chat export and its numbers appear here.',
                   tone: NoticeTone.caution,
-                  title: 'No chats yet',
                 ),
               ];
             }
@@ -60,27 +61,19 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
               (c) => c.id == _selectedId,
               orElse: () => all.first,
             );
+            final them = _name(chat);
             return [
+              SerifTitle(
+                'Everything you and ',
+                accent: bidiIsolate(them),
+                trailing: ' have said.',
+                size: 34,
+              ),
               if (all.length > 1)
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final c in all)
-                      ChoiceChip(
-                        label: Text(_name(c)),
-                        selected: c.id == chat.id,
-                        onSelected: (_) => setState(() => _selectedId = c.id),
-                        showCheckmark: false,
-                        backgroundColor: Paper.card,
-                        selectedColor: Paper.ink,
-                        side: const BorderSide(color: Paper.border),
-                        labelStyle: Type.strong(
-                          size: 13,
-                          color: c.id == chat.id ? Paper.onInk : Paper.ink,
-                        ),
-                      ),
-                  ],
+                _ChatPills(
+                  chats: all,
+                  selected: chat.id,
+                  onPick: (id) => setState(() => _selectedId = id),
                 ),
               if (chat.stats.isEmpty)
                 const Notice(
@@ -91,16 +84,22 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
                   title: 'No numbers yet',
                 )
               else
-                ..._sections(chat),
+                ..._sections(chat.stats, them),
             ];
           },
         ),
-        const MonoLabel('How the suggestions have done'),
-        feedback.when(
-          loading: () => const LinearProgressIndicator(minHeight: 3),
-          error: (error, _) => FailureNotice(error: error),
-          data: (entries) =>
-              _FeedbackCard(summary: FeedbackSummary.of(entries)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const MonoLabel('How the suggestions have done'),
+            const SizedBox(height: 10),
+            feedback.when(
+              loading: () => const LinearProgressIndicator(minHeight: 3),
+              error: (error, _) => FailureNotice(error: error),
+              data: (entries) =>
+                  _FeedbackCard(summary: FeedbackSummary.of(entries)),
+            ),
+          ],
         ),
         const Footnote('Counted on your phone. No API calls.'),
       ],
@@ -108,34 +107,115 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
   }
 
   static String _name(ChatMemory chat) =>
-      chat.theirName.isEmpty ? 'Unnamed chat' : chat.theirName;
+      chat.theirName.isEmpty ? 'them' : chat.theirName;
 
-  List<Widget> _sections(ChatMemory chat) {
-    final stats = chat.stats;
-    final them = _name(chat);
+  List<Widget> _sections(ChatStats stats, String them) {
+    final highlights = Highlights.of(stats, them: them);
     return [
       _Hero(stats: stats, them: them),
-      const MonoLabel('You and them'),
-      _Comparison(stats: stats, them: them),
-      const MonoLabel('When you talk'),
-      _WhenYouTalk(stats: stats),
+      if (highlights.isNotEmpty)
+        _Section(
+          label: 'What stands out',
+          child: _Highlights(lines: highlights),
+        ),
+      _Section(
+        label: 'You and ${bidiIsolate(them)}',
+        trailing: _Legend(them: them),
+        child: _Duels(stats: stats, them: them),
+      ),
+      _Section(
+        label: 'When you talk',
+        child: _WhenYouTalk(stats: stats),
+      ),
       if (stats.me.topWords.isNotEmpty ||
           stats.them.topWords.isNotEmpty ||
           stats.me.topEmoji.isNotEmpty ||
-          stats.them.topEmoji.isNotEmpty) ...[
-        const MonoLabel('Favourites'),
-        _Favourites(stats: stats, them: them),
-      ],
+          stats.them.topEmoji.isNotEmpty)
+        _Section(
+          label: 'Favourites',
+          child: _Favourites(stats: stats, them: them),
+        ),
     ];
   }
 }
 
-/// The headline: how much has been said, over how long.
+/// A mono label over its content, the way home titles its blocks.
+class _Section extends StatelessWidget {
+  const _Section({required this.label, required this.child, this.trailing});
+
+  final String label;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(child: MonoLabel(label)),
+          ?trailing,
+        ],
+      ),
+      const SizedBox(height: 10),
+      child,
+    ],
+  );
+}
+
+/// Which chat, in the ink-or-outline pills the app uses for a choice.
+class _ChatPills extends StatelessWidget {
+  const _ChatPills({
+    required this.chats,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final List<ChatMemory> chats;
+  final int selected;
+  final ValueChanged<int> onPick;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: [
+        for (final chat in chats) ...[
+          if (chat != chats.first) const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => onPick(chat.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              decoration: BoxDecoration(
+                color: chat.id == selected ? Paper.ink : Paper.card,
+                borderRadius: Corner.all(Corner.pill),
+                border: chat.id == selected
+                    ? null
+                    : Border.all(color: Paper.border, width: 1.5),
+              ),
+              child: Text(
+                chat.theirName.isEmpty ? 'Unnamed' : chat.theirName,
+                style: Type.strong(
+                  size: 14,
+                  color: chat.id == selected ? Paper.onInk : Paper.ink,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// The headline: how much has been said, over how long, and by whom.
 class _Hero extends StatelessWidget {
   const _Hero({required this.stats, required this.them});
 
   final ChatStats stats;
   final String them;
+
+  static const Color _faint = Color(0x9EFAF7F0);
 
   @override
   Widget build(BuildContext context) {
@@ -144,45 +224,45 @@ class _Hero extends StatelessWidget {
     final span = first != null && last != null
         ? last.difference(first).inDays + 1
         : null;
-    const faint = Color(0x9EFAF7F0);
+
+    Widget figure(String value, String label) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value, style: Type.numeric(size: 17, color: Paper.amber)),
+          const SizedBox(height: 2),
+          Text(label, style: Type.prose(size: 12, color: _faint, height: 1.3)),
+        ],
+      ),
+    );
+
     return InkCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'You and ${bidiIsolate(them)} have sent',
-            style: Type.prose(size: 15, color: faint, height: 1.3),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                grouped(stats.totalMessages),
-                style: Type.numeric(size: 40, color: Paper.amber),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'messages',
-                  style: Type.prose(size: 15, color: faint),
-                ),
-              ),
-            ],
-          ),
+          if (first != null)
+            MonoLabel(
+              'Since ${dayMonthYear(first)}',
+              color: const Color(0x80FAF7F0),
+            ),
           const SizedBox(height: 10),
           Text(
-            [
-              '${grouped(stats.totalWords)} words',
-              if (span != null)
-                'over ${grouped(span)} ${span == 1 ? "day" : "days"}',
-              if (first != null && last != null)
-                '${dayMonthYear(first)} – ${dayMonthYear(last)}',
-            ].join(' · '),
-            style: Type.prose(size: 13, color: faint, height: 1.45),
+            grouped(stats.totalMessages),
+            style: Type.display(56, color: Paper.onInk),
           ),
-          const SizedBox(height: 14),
+          Text(
+            'messages between you',
+            style: Type.prose(size: 15, color: _faint, height: 1.3),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              figure(compactTokens(stats.totalWords), 'words'),
+              if (span != null) figure(grouped(span), 'days'),
+              figure(grouped(stats.activeDays), 'days you talked'),
+            ],
+          ),
+          const SizedBox(height: 18),
           _ShareBar(share: stats.myShare, them: them),
         ],
       ),
@@ -207,8 +287,10 @@ class _ShareBar extends StatelessWidget {
         ClipRRect(
           borderRadius: Corner.all(Corner.pill),
           child: SizedBox(
-            height: 8,
+            height: 6,
             child: Row(
+              // Without this the fills have no height and draw nothing.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
                   flex: mine,
@@ -224,18 +306,18 @@ class _ShareBar extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 7),
         Row(
           children: [
             Expanded(
               child: Text(
-                'You ${percent(share)}',
-                style: Type.numeric(size: 12, color: Paper.onInk),
+                'You · ${percent(share)}',
+                style: Type.prose(size: 12.5, color: Paper.onInk, height: 1.3),
               ),
             ),
             Text(
-              '${percent(1 - share)} ${bidiIsolate(them)}',
-              style: Type.numeric(size: 12, color: faint),
+              '${percent(1 - share)} · ${bidiIsolate(them)}',
+              style: Type.prose(size: 12.5, color: faint, height: 1.3),
             ),
           ],
         ),
@@ -244,9 +326,158 @@ class _ShareBar extends StatelessWidget {
   }
 }
 
-/// Side-by-side figures for each of you.
-class _Comparison extends StatelessWidget {
-  const _Comparison({required this.stats, required this.them});
+/// The few facts worth saying out loud, in plain sentences.
+///
+/// Each is only offered when the gap it describes is big enough to be
+/// interesting, so a balanced chat gets fewer lines rather than dull ones.
+class Highlights {
+  const Highlights._();
+
+  static List<String> of(ChatStats stats, {required String them}) {
+    final me = stats.me;
+    final other = stats.them;
+    final name = bidiIsolate(them);
+    final lines = <String>[];
+
+    final mine = me.medianReplySeconds;
+    final theirs = other.medianReplySeconds;
+    if (mine != null && theirs != null) {
+      lines.add(
+        'You usually reply in *${replyTime(mine)}*; $name takes '
+        '*${replyTime(theirs)}*.',
+      );
+    }
+
+    final starts = me.conversationsStarted + other.conversationsStarted;
+    if (starts >= 5) {
+      final share = me.conversationsStarted / starts;
+      if (share >= 0.58) {
+        lines.add('You start *${percent(share)}* of your conversations.');
+      } else if (share <= 0.42) {
+        lines.add(
+          '$name starts *${percent(1 - share)}* of your conversations.',
+        );
+      }
+    }
+
+    final a = me.wordsPerMessage;
+    final b = other.wordsPerMessage;
+    if (a > 0 && b > 0 && (a / b >= 1.3 || b / a >= 1.3)) {
+      final longer = a > b;
+      lines.add(
+        '${longer ? "You write" : "$name writes"} longer: '
+        '*${(longer ? a : b).toStringAsFixed(1)} words* a message to '
+        '${longer ? "their" : "your"} ${(longer ? b : a).toStringAsFixed(1)}.',
+      );
+    }
+
+    if (me.laughs >= 10 && other.laughs >= 10) {
+      final ratio = me.laughs / other.laughs;
+      if (ratio >= 1.5) {
+        lines.add('You laugh *${ratio.toStringAsFixed(1)}×* as often.');
+      } else if (ratio <= 1 / 1.5) {
+        lines.add(
+          '$name laughs *${(1 / ratio).toStringAsFixed(1)}×* as often.',
+        );
+      }
+    }
+
+    final busiest = stats.busiestDay;
+    if (busiest != null && stats.busiestDayMessages >= 20) {
+      lines.add(
+        'Your busiest day was *${dayMonthYear(busiest)}*: '
+        '${grouped(stats.busiestDayMessages)} messages.',
+      );
+    }
+
+    if (stats.longestStreakDays >= 7) {
+      lines.add(
+        'At your longest, you talked *${grouped(stats.longestStreakDays)} '
+        'days in a row*.',
+      );
+    }
+    return lines.take(5).toList();
+  }
+}
+
+/// Numbered lines, as home lists its three steps.
+class _Highlights extends StatelessWidget {
+  const _Highlights({required this.lines});
+
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) => PaperPanel(
+    radius: Corner.card,
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+    child: Column(
+      children: [
+        for (var i = 0; i < lines.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 30,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    (i + 1).toString().padLeft(2, '0'),
+                    style: Type.numeric(size: 12, color: Paper.accent),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: emphasised(lines[i], size: 14.5, color: Paper.body),
+              ),
+            ],
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// You in ink, them in the accent — the key for the paired bars.
+class _Legend extends StatelessWidget {
+  const _Legend({required this.them});
+
+  final String them;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget key(Color color, String label) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: Corner.all(const Radius.circular(2)),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Type.prose(size: 12, color: Paper.secondary, height: 1.2),
+        ),
+      ],
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        key(Paper.ink, 'You'),
+        const SizedBox(width: 12),
+        key(Paper.accent, bidiIsolate(them)),
+      ],
+    );
+  }
+}
+
+/// Every side-by-side figure, as paired bars grouped into three cards.
+class _Duels extends StatelessWidget {
+  const _Duels({required this.stats, required this.them});
 
   final ChatStats stats;
   final String them;
@@ -255,92 +486,182 @@ class _Comparison extends StatelessWidget {
   Widget build(BuildContext context) {
     final me = stats.me;
     final other = stats.them;
-    final rows = <(String, String, String)>[
-      ('Messages', grouped(me.messages), grouped(other.messages)),
-      ('Words', grouped(me.words), grouped(other.words)),
+
+    _Duel count(String label, int a, int b) =>
+        _Duel(label, a.toDouble(), b.toDouble(), grouped(a), grouped(b));
+
+    final groups = <(String, List<_Duel>)>[
       (
-        'Words per message',
-        me.wordsPerMessage.toStringAsFixed(1),
-        other.wordsPerMessage.toStringAsFixed(1),
+        'Talking',
+        [
+          count('Messages', me.messages, other.messages),
+          count('Words', me.words, other.words),
+          _Duel(
+            'Words per message',
+            me.wordsPerMessage,
+            other.wordsPerMessage,
+            me.wordsPerMessage.toStringAsFixed(1),
+            other.wordsPerMessage.toStringAsFixed(1),
+          ),
+          count(
+            'Longest message, in words',
+            me.longestMessageWords,
+            other.longestMessageWords,
+          ),
+        ],
       ),
       (
-        'Longest message',
-        '${grouped(me.longestMessageWords)} words',
-        '${grouped(other.longestMessageWords)} words',
+        'Replying',
+        [
+          _Duel(
+            'Typical reply time',
+            (me.medianReplySeconds ?? 0).toDouble(),
+            (other.medianReplySeconds ?? 0).toDouble(),
+            replyTime(me.medianReplySeconds),
+            replyTime(other.medianReplySeconds),
+          ),
+          _Duel(
+            'Replies within 5 minutes',
+            me.quickReplyShare,
+            other.quickReplyShare,
+            percent(me.quickReplyShare),
+            percent(other.quickReplyShare),
+          ),
+          count(
+            'Conversations started',
+            me.conversationsStarted,
+            other.conversationsStarted,
+          ),
+          count('Double texts', me.doubleTexts, other.doubleTexts),
+        ],
       ),
       (
-        'Typical reply time',
-        replyTime(me.medianReplySeconds),
-        replyTime(other.medianReplySeconds),
+        'Little things',
+        [
+          count('Questions', me.questions, other.questions),
+          count('Laughs', me.laughs, other.laughs),
+          count('Emoji', me.emoji, other.emoji),
+          count('Photos & media', me.media, other.media),
+          count('After midnight', me.lateNight, other.lateNight),
+          count('Deleted', me.deleted, other.deleted),
+        ],
       ),
-      (
-        'Replies within 5 min',
-        percent(me.quickReplyShare),
-        percent(other.quickReplyShare),
-      ),
-      (
-        'Conversations started',
-        grouped(me.conversationsStarted),
-        grouped(other.conversationsStarted),
-      ),
-      ('Double texts', grouped(me.doubleTexts), grouped(other.doubleTexts)),
-      ('Questions asked', grouped(me.questions), grouped(other.questions)),
-      ('Laughs', grouped(me.laughs), grouped(other.laughs)),
-      ('Emoji', grouped(me.emoji), grouped(other.emoji)),
-      ('Photos & media', grouped(me.media), grouped(other.media)),
-      ('After midnight', grouped(me.lateNight), grouped(other.lateNight)),
-      ('Deleted', grouped(me.deleted), grouped(other.deleted)),
     ];
 
-    Widget cell(String text, {bool head = false, bool alignEnd = true}) => Text(
-      text,
-      textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: head
-          ? Type.strong(size: 12.5, color: Paper.tertiary, height: 1.3)
-          : Type.numeric(size: 13, weight: FontWeight.w500),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (title, duels) in groups) ...[
+          if (title != groups.first.$1) const SizedBox(height: 12),
+          PaperCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(title, style: Type.display(22)),
+                const SizedBox(height: 6),
+                for (var i = 0; i < duels.length; i++)
+                  _DuelRow(
+                    duel: duels[i],
+                    them: them,
+                    last: i == duels.length - 1,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
+  }
+}
 
-    return PaperCard(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+class _Duel {
+  const _Duel(this.label, this.mine, this.theirs, this.myText, this.theirText);
+
+  final String label;
+  final double mine;
+  final double theirs;
+  final String myText;
+  final String theirText;
+}
+
+/// One figure for each of you: a label, then two thin bars on a shared scale
+/// with the values beside them.
+class _DuelRow extends StatelessWidget {
+  const _DuelRow({required this.duel, required this.them, required this.last});
+
+  final _Duel duel;
+  final String them;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = duel.mine > duel.theirs ? duel.mine : duel.theirs;
+
+    Widget bar(double value, Color color, String text, String semantic) =>
+        Semantics(
+          label: '$semantic: $text',
+          excludeSemantics: true,
+          child: Row(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = top <= 0
+                        ? 0.0
+                        : (value / top * constraints.maxWidth).clamp(
+                            value > 0 ? 3.0 : 0.0,
+                            constraints.maxWidth,
+                          );
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        width: width,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: color,
+                          borderRadius: const BorderRadius.horizontal(
+                            right: Radius.circular(4),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 104,
+                child: Text(
+                  text,
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.numeric(size: 12.5),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        border: last
+            ? null
+            : const Border(bottom: BorderSide(color: Paper.divider)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Expanded(flex: 5, child: SizedBox()),
-              Expanded(flex: 3, child: cell('You', head: true)),
-              Expanded(flex: 3, child: cell(bidiIsolate(them), head: true)),
-            ],
+          Text(
+            duel.label,
+            style: Type.prose(size: 13, color: Paper.secondary, height: 1.3),
           ),
-          const SizedBox(height: 4),
-          for (var i = 0; i < rows.length; i++)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                border: i == rows.length - 1
-                    ? null
-                    : const Border(bottom: BorderSide(color: Paper.divider)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 5,
-                    child: Text(
-                      rows[i].$1,
-                      style: Type.prose(
-                        size: 13,
-                        color: Paper.secondary,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                  Expanded(flex: 3, child: cell(rows[i].$2)),
-                  Expanded(flex: 3, child: cell(rows[i].$3)),
-                ],
-              ),
-            ),
+          const SizedBox(height: 7),
+          bar(duel.mine, Paper.ink, duel.myText, 'You'),
+          const SizedBox(height: 5),
+          bar(duel.theirs, Paper.accent, duel.theirText, them),
         ],
       ),
     );
@@ -368,42 +689,80 @@ class _WhenYouTalk extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final busiest = stats.busiestDay;
-    return PaperCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (stats.byHour.length == 24)
-            BarStrip(
-              key: const ValueKey('by-hour'),
-              title: 'By hour of the day',
-              values: stats.byHour,
-              describe: (i) => '${_hour(i)}–${_hour((i + 1) % 24)}',
-              axisLabel: (i) => i % 6 == 0 ? i.toString().padLeft(2, '0') : '',
+
+    Widget record(String value, String label) => Expanded(
+      child: PaperPanel(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value, style: Type.numeric(size: 18)),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: Type.prose(size: 12, color: Paper.tertiary, height: 1.3),
             ),
-          const SizedBox(height: 18),
-          if (stats.byWeekday.length == 7)
-            BarStrip(
-              key: const ValueKey('by-weekday'),
-              title: 'By day of the week',
-              values: stats.byWeekday,
-              describe: (i) => _days[i],
-              axisLabel: (i) => _days[i].substring(0, 1),
-            ),
-          const SizedBox(height: 12),
-          if (busiest != null)
-            FigureRow(
-              'Busiest day',
-              '${dayMonthYear(busiest)} · ${grouped(stats.busiestDayMessages)}',
-            ),
-          FigureRow(
-            'Longest streak',
-            '${grouped(stats.longestStreakDays)} days in a row',
-          ),
-          FigureRow('Days you talked', grouped(stats.activeDays)),
-        ],
+          ],
+        ),
       ),
     );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PaperCard(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (stats.byHour.length == 24)
+                BarStrip(
+                  key: const ValueKey('by-hour'),
+                  title: 'Through the day',
+                  values: stats.byHour,
+                  describe: (i) => '${_hour(i)}–${_hour((i + 1) % 24)}',
+                  axisLabel: (i) =>
+                      i % 6 == 0 ? i.toString().padLeft(2, '0') : '',
+                ),
+              const SizedBox(height: 22),
+              if (stats.byWeekday.length == 7)
+                BarStrip(
+                  key: const ValueKey('by-weekday'),
+                  title: 'Through the week',
+                  values: stats.byWeekday,
+                  describe: (i) => _days[i],
+                  axisLabel: (i) => _days[i].substring(0, 1),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Equal heights, so the three tiles read as one row.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (busiest != null) ...[
+                record(dayMonth(busiest), 'busiest day'),
+                const SizedBox(width: 8),
+              ],
+              record(grouped(stats.longestStreakDays), 'days in a row'),
+              const SizedBox(width: 8),
+              if (stats.byHour.isNotEmpty)
+                record(_hour(_peakHour()), 'busiest hour'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  int _peakHour() {
+    var best = 0;
+    for (var i = 1; i < stats.byHour.length; i++) {
+      if (stats.byHour[i] > stats.byHour[best]) best = i;
+    }
+    return best;
   }
 }
 
@@ -526,7 +885,7 @@ class _BarStripState extends State<BarStrip> {
   }
 }
 
-/// Top emoji and words, each side.
+/// Top emoji and words, each side, with the words as pills.
 class _Favourites extends StatelessWidget {
   const _Favourites({required this.stats, required this.them});
 
@@ -535,25 +894,67 @@ class _Favourites extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget side(String who, PersonStats person) {
-      final emoji = person.topEmoji.keys.take(6).join(' ');
-      final words = person.topWords.entries
-          .take(6)
-          .map((e) => '${e.key} ×${e.value}')
-          .join('   ');
+    Widget side(String who, PersonStats person, Color mark) {
+      final emoji = person.topEmoji.keys.take(6).join('  ');
+      final words = person.topWords.entries.take(6).toList();
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(who, style: Type.strong(size: 13, height: 1.35)),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.only(right: 7),
+                decoration: BoxDecoration(
+                  color: mark,
+                  borderRadius: Corner.all(const Radius.circular(2)),
+                ),
+              ),
+              Text(who, style: Type.strong(size: 14, height: 1.3)),
+            ],
+          ),
           if (emoji.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(emoji, style: const TextStyle(fontSize: 20, height: 1.4)),
+            const SizedBox(height: 8),
+            Text(emoji, style: const TextStyle(fontSize: 22, height: 1.3)),
           ],
           if (words.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              words,
-              style: Type.prose(size: 13, color: Paper.body, height: 1.5),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final word in words)
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
+                    decoration: BoxDecoration(
+                      color: Paper.panel,
+                      borderRadius: Corner.all(Corner.pill),
+                    ),
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: word.key,
+                            style: Type.prose(
+                              size: 13,
+                              color: Paper.ink,
+                              height: 1.2,
+                            ),
+                          ),
+                          TextSpan(
+                            text: '  ${grouped(word.value)}',
+                            style: Type.numeric(
+                              size: 11,
+                              color: Paper.muted,
+                              weight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ],
@@ -561,13 +962,17 @@ class _Favourites extends StatelessWidget {
     }
 
     return PaperCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          side('You', stats.me),
-          const SizedBox(height: 14),
-          side(them, stats.them),
+          side('You', stats.me, Paper.ink),
+          Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 16),
+            color: Paper.divider,
+          ),
+          side(bidiIsolate(them), stats.them, Paper.accent),
         ],
       ),
     );

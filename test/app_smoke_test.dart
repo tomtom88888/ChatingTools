@@ -236,11 +236,7 @@ void main() {
     tester,
   ) async {
     final store = trainedStore();
-    await pumpApp(
-      tester,
-      apiKey: 'sk-test-0123456789abcdefghij',
-      store: store,
-    );
+    await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij', store: store);
 
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
@@ -262,14 +258,13 @@ void main() {
     tester,
   ) async {
     final store = FakeStore(
-      chats: [exampleChat(), exampleChat(id: 2, them: 'Mum')],
+      chats: [
+        exampleChat(),
+        exampleChat(id: 2, them: 'Mum'),
+      ],
       rows: [exampleExchange(), exampleExchange(chatId: 2)],
     );
-    await pumpApp(
-      tester,
-      apiKey: 'sk-test-0123456789abcdefghij',
-      store: store,
-    );
+    await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij', store: store);
 
     expect(find.text('CHATS IT WRITES FROM'), findsOneWidget);
     expect(find.byType(Checkbox), findsNWidgets(2));
@@ -343,11 +338,9 @@ void main() {
     expect(find.text('4'), findsWidgets);
     expect(find.text('Typical reply time'), findsOneWidget);
     expect(find.text('3 min'), findsOneWidget, reason: 'median of 4 and 2');
-    expect(find.text('By hour of the day'), findsOneWidget);
-    expect(
-      find.text('09:00–10:00 · 2 messages — the busiest'),
-      findsOneWidget,
-    );
+    expect(find.text('Through the day'), findsOneWidget);
+    expect(find.text('WHAT STANDS OUT'), findsOneWidget);
+    expect(find.text('09:00–10:00 · 2 messages — the busiest'), findsOneWidget);
 
     // Tapping a bar reads out that bar.
     final hours = find.byKey(const ValueKey('by-hour'));

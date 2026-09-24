@@ -108,7 +108,7 @@ examples as context.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 241 tests, no network or device needed
+flutter test          # 243 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -312,7 +312,7 @@ lib/
     generate/                the transcript, reply cards and other parts
     settings/                settings widgets and the spending section
   widgets/                   the paper design kit, dialogs, formatting
-test/                        241 tests (216 unit, 25 widget)
+test/                        243 tests (218 unit, 25 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -344,7 +344,7 @@ them.
 flutter test
 ```
 
-241 tests, and no network or device is needed for any of them.
+243 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap
