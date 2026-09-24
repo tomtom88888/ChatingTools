@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'chat_stats.dart';
 import 'chat_turn.dart';
 import 'exchange.dart';
 import 'style_profile.dart';
@@ -122,6 +123,7 @@ class ChatMemory {
     this.savedCount = 0,
     this.enabled = true,
     this.profile = StyleProfile.empty,
+    this.stats = ChatStats.empty,
   });
 
   /// Row id; -1 before insertion.
@@ -144,8 +146,14 @@ class ChatMemory {
   /// Whether generation retrieves from this chat.
   final bool enabled;
 
-  /// How you write in this chat, measured from the export.
+  /// How you write in this chat, measured from the export. Used in the
+  /// prompt.
   final StyleProfile profile;
+
+  /// The chat's numbers — message counts, reply times, when you talk — for
+  /// the chat data screen. Empty for a chat last imported before these were
+  /// counted.
+  final ChatStats stats;
 
   bool get isEmpty => exchangeCount == 0;
 
@@ -165,6 +173,7 @@ class ChatMemory {
     int? savedCount,
     bool? enabled,
     StyleProfile? profile,
+    ChatStats? stats,
   }) => ChatMemory(
     id: id ?? this.id,
     myName: myName ?? this.myName,
@@ -176,6 +185,7 @@ class ChatMemory {
     savedCount: savedCount ?? this.savedCount,
     enabled: enabled ?? this.enabled,
     profile: profile ?? this.profile,
+    stats: stats ?? this.stats,
   );
 
   @override

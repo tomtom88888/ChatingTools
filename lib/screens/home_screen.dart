@@ -13,8 +13,8 @@ import '../widgets/format.dart';
 import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
 import 'generate_screen.dart';
+import 'chat_data_screen.dart';
 import 'settings_screen.dart';
-import 'style_report_screen.dart';
 import 'train_screen.dart';
 
 /// What the app knows, which of it to use, and the things you can do.
@@ -183,10 +183,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   _MemoryDetails(chats: enabled.isEmpty ? learned : enabled),
                   PaperAction(
-                    title: 'Your style report',
-                    subtitle: 'How you text, chat by chat — no API calls',
+                    title: 'Chat data',
+                    subtitle: 'Reply times, word counts, when you talk',
                     tone: ActionTone.outline,
-                    onTap: () => _push(const StyleReportScreen()),
+                    onTap: () => _push(const ChatDataScreen()),
                   ),
                   if (settings.mode == TrainingMode.fineTune &&
                       !settings.hasFineTunedModel)

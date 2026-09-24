@@ -76,3 +76,19 @@ String nameList(List<String> names) {
   if (shown.length == 2) return '${shown[0]} & ${shown[1]}';
   return '${shown[0]}, ${shown[1]} & ${shown.length - 2} more';
 }
+
+/// A reply time in words: "under a minute", "4 min", "1 h 20 min", "2 days".
+String replyTime(int? seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return 'under a minute';
+  final minutes = seconds ~/ 60;
+  if (minutes < 60) return '$minutes min';
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  if (hours < 24) return rest == 0 ? '$hours h' : '$hours h $rest min';
+  final days = hours ~/ 24;
+  return days == 1 ? '1 day' : '$days days';
+}
+
+/// `20 Sep 2026`.
+String dayMonthYear(DateTime at) => '${dayMonth(at)} ${at.year}';

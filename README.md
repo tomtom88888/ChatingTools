@@ -65,9 +65,16 @@ The import also measures your habits — how long your replies usually are, how
 often you start lowercase, end with a full stop, use emoji, ask questions or
 split a message into several bubbles, and the short phrases you repeat. Those
 numbers go into the prompt, which stops the model drifting towards longer,
-tidier messages than you would ever send. **Your style report** on the home
-screen shows the same numbers per chat, where your chats differ, and how the
-suggestions have fared — worked out on the phone with no API calls.
+tidier messages than you would ever send.
+
+**Chat data** on the home screen shows the numbers behind each chat, counted
+from the export on the phone with no API calls: messages and words each, your
+typical reply times and how often each of you answers within five minutes,
+who starts conversations and who double-texts, questions, laughs, emoji and
+late nights, the busiest day and longest daily streak, when in the day and
+week you talk, and your favourite words and emoji. It also shows how the
+suggestions have fared. A chat imported before this existed shows its numbers
+after its export is imported again, which sends nothing new to OpenAI.
 
 **Mode B — fine-tune (optional, costs money).** The same exchanges are written
 as chat-format JSONL — a system message describing you texting them, the
@@ -101,7 +108,7 @@ examples as context.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 231 tests, no network or device needed
+flutter test          # 241 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -277,6 +284,7 @@ lib/
     reply_suggestion.dart    a suggestion and what it is for
     stored_exchange.dart     an exchange plus its embedding; a learned chat
     style_profile.dart       your measured habits, mergeable across chats
+    chat_stats.dart          a chat's numbers: reply times, words, when
     suggestion_feedback.dart which suggestion you took, and the totals
   services/
     whatsapp_parser.dart     both export layouts -> messages, turns, exchanges
@@ -300,11 +308,11 @@ lib/
     pricing.dart             token and cost estimates
   state/providers.dart       Riverpod providers and notifiers
   screens/                   root, setup, home, train, generate, finetune,
-                             settings, style report
+                             settings, chat data
     generate/                the transcript, reply cards and other parts
     settings/                settings widgets and the spending section
   widgets/                   the paper design kit, dialogs, formatting
-test/                        231 tests (207 unit, 24 widget)
+test/                        241 tests (216 unit, 25 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -336,7 +344,7 @@ them.
 flutter test
 ```
 
-231 tests, and no network or device is needed for any of them.
+241 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap
@@ -352,6 +360,6 @@ before chats existed.
 The widget tests boot the real app with an in-memory style memory and a
 stubbed key: setup, key validation, home with no chats, one chat and two
 (ticking and unticking), Settings with the key masked and the spending
-section, "delete all my data", the style report, the layout on a narrow phone
+section, "delete all my data", chat data, the layout on a narrow phone
 with system bars and right-to-left names, and the whole Generate flow from a
 paste — bubbles copied one at a time, a tweak, a star, and the feedback log.

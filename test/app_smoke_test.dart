@@ -6,10 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:replylikeme/main.dart';
 import 'package:replylikeme/models/app_settings.dart';
+import 'package:replylikeme/models/chat_stats.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/screens/settings_screen.dart';
 import 'package:replylikeme/services/memory_exchange_store.dart';
+import 'package:replylikeme/services/whatsapp_parser.dart';
 import 'package:replylikeme/state/providers.dart';
 import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -291,7 +293,7 @@ void main() {
     expect(find.byIcon(Icons.lock_outline), findsOneWidget);
   });
 
-  testWidgets('the style report opens from home without any network', (
+  testWidgets('chat data asks for a re-import when a chat has no numbers', (
     tester,
   ) async {
     await pumpApp(
@@ -299,13 +301,68 @@ void main() {
       apiKey: 'sk-test-0123456789abcdefghij',
       store: FakeStore(chats: [exampleChat()], rows: [exampleExchange()]),
     );
-    await scrollTo(tester, find.text('Your style report'));
-    await tester.tap(find.text('Your style report'));
+    await scrollTo(tester, find.text('Chat data'));
+    await tester.tap(find.text('Chat data'));
     await tester.pumpAndSettle();
 
-    expect(find.text('How you text'), findsOneWidget);
-    // The example chat has no measured profile, so the page says so.
-    expect(find.text('Nothing measured yet'), findsOneWidget);
-    expect(find.text('No API calls are made to build this page.'), findsWidgets);
+    expect(find.text('No numbers yet'), findsOneWidget);
+    expect(find.text('Counted on your phone. No API calls.'), findsOneWidget);
+  });
+
+  testWidgets('chat data shows the numbers for the chat picked', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 9000);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    final stats = ChatStats.from(
+      WhatsAppParser.parse(
+        '02/03/2026, 09:00 - Sam: pub tonight?\n'
+        '02/03/2026, 09:04 - Robin: go on then\n'
+        '02/03/2026, 21:00 - Sam: home safe?\n'
+        '02/03/2026, 21:02 - Robin: yep',
+      ),
+      myName: 'Robin',
+    );
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: FakeStore(
+        chats: [
+          exampleChat().copyWith(stats: stats),
+          exampleChat(id: 2, them: 'Mum'),
+        ],
+        rows: [exampleExchange(), exampleExchange(chatId: 2)],
+      ),
+    );
+    await tester.tap(find.text('Chat data'));
+    await tester.pumpAndSettle();
+
+    // Sam's chat is first, and has numbers.
+    expect(find.text('4'), findsWidgets);
+    expect(find.text('Typical reply time'), findsOneWidget);
+    expect(find.text('3 min'), findsOneWidget, reason: 'median of 4 and 2');
+    expect(find.text('By hour of the day'), findsOneWidget);
+    expect(
+      find.text('09:00–10:00 · 2 messages — the busiest'),
+      findsOneWidget,
+    );
+
+    // Tapping a bar reads out that bar.
+    final hours = find.byKey(const ValueKey('by-hour'));
+    final bars = find.descendant(
+      of: hours,
+      matching: find.byType(GestureDetector),
+    );
+    await tester.tap(bars.at(21));
+    await tester.pumpAndSettle();
+    expect(find.text('21:00–22:00 · 2 messages'), findsOneWidget);
+
+    // Mum's chat was imported before numbers were counted.
+    await tester.tap(find.text('Mum'));
+    await tester.pumpAndSettle();
+    expect(find.text('No numbers yet'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

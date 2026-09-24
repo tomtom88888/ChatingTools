@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import '../models/chat_stats.dart';
 import '../models/chat_turn.dart';
 import '../models/stored_exchange.dart';
 import '../models/style_profile.dart';
@@ -33,7 +34,8 @@ class SqfliteExchangeStore implements ExchangeStore {
   /// v1: one chat, described by a JSON row in `meta`.
   /// v2: a `chats` table, per-exchange chat ids and content hashes, and the
   ///     feedback log.
-  static const int schemaVersion = 2;
+  /// v3: each chat's numbers for the chat data screen.
+  static const int schemaVersion = 3;
 
   Database? _database;
   final Map<int, List<StoredExchange>> _cache = {};
@@ -54,6 +56,7 @@ class SqfliteExchangeStore implements ExchangeStore {
         onCreate: (db, version) => createSchema(db, version: version),
         onUpgrade: (db, from, to) async {
           if (from < 2) await _upgradeToV2(db);
+          if (from < 3) await _upgradeToV3(db);
         },
       ),
     );
@@ -97,7 +100,14 @@ class SqfliteExchangeStore implements ExchangeStore {
       )
     ''');
     await _createV2Tables(db);
+    if (version >= 3) await _upgradeToV3(db);
   }
+
+  /// Adds the column for each chat's numbers. Chats imported before it read
+  /// as having none until their export is imported again.
+  static Future<void> _upgradeToV3(DatabaseExecutor db) => db.execute(
+    "ALTER TABLE chats ADD COLUMN stats_json TEXT NOT NULL DEFAULT '{}'",
+  );
 
   static Future<void> _createV2Tables(DatabaseExecutor db) async {
     await db.execute('''
@@ -217,12 +227,14 @@ class SqfliteExchangeStore implements ExchangeStore {
   }
 
   static ChatMemory _chatFromRow(Map<String, Object?> row) {
-    Object? profile;
-    try {
-      profile = jsonDecode(row['profile_json'] as String? ?? '{}');
-    } on FormatException {
-      profile = null;
+    Object? decode(String column) {
+      try {
+        return jsonDecode(row[column] as String? ?? '{}');
+      } on FormatException {
+        return null;
+      }
     }
+
     return ChatMemory(
       id: (row['id']! as num).toInt(),
       myName: row['my_name'] as String? ?? '',
@@ -235,7 +247,8 @@ class SqfliteExchangeStore implements ExchangeStore {
       enabled: (row['enabled'] as num?)?.toInt() != 0,
       exchangeCount: (row['n'] as num?)?.toInt() ?? 0,
       savedCount: (row['saved'] as num?)?.toInt() ?? 0,
-      profile: StyleProfile.fromJson(profile),
+      profile: StyleProfile.fromJson(decode('profile_json')),
+      stats: ChatStats.fromJson(decode('stats_json')),
     );
   }
 
@@ -256,6 +269,7 @@ class SqfliteExchangeStore implements ExchangeStore {
         'built_at': chat.builtAt.millisecondsSinceEpoch,
         'enabled': chat.enabled ? 1 : 0,
         'profile_json': jsonEncode(chat.profile.toJson()),
+        'stats_json': jsonEncode(chat.stats.toJson()),
       };
       if (chat.id < 0) {
         chatId = await txn.insert('chats', values);

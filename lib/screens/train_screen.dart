@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_settings.dart';
+import '../models/chat_stats.dart';
 import '../models/exchange.dart';
 import '../models/parsed_chat.dart';
 import '../models/stored_exchange.dart';
@@ -233,6 +234,9 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         profile: chat == null
             ? StyleProfile.empty
             : StyleProfile.measure(chat.turns, me: me),
+        stats: chat == null
+            ? ChatStats.empty
+            : ChatStats.from(chat, myName: me),
         importPlan: plan,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../models/chat_stats.dart';
 import '../models/chat_turn.dart';
 import '../models/exchange.dart';
 import '../models/parsed_chat.dart';
@@ -190,6 +191,7 @@ class StyleMemoryService {
     required String embeddingModel,
     required int dimensions,
     StyleProfile profile = StyleProfile.empty,
+    ChatStats stats = ChatStats.empty,
     ImportPlan? importPlan,
     void Function(StyleMemoryProgress)? onProgress,
     bool Function()? isCancelled,
@@ -283,6 +285,7 @@ class StyleMemoryService {
               // want it back.
               enabled: true,
               profile: profile.isEmpty ? base?.profile : profile,
+          stats: stats.isEmpty ? base?.stats : stats,
             );
     return store.saveChat(
       chat,

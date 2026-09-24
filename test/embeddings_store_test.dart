@@ -4,12 +4,14 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:replylikeme/models/chat_stats.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/reply_suggestion.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/models/suggestion_feedback.dart';
 import 'package:replylikeme/services/embeddings_store.dart';
 import 'package:replylikeme/services/vector_math.dart';
+import 'package:replylikeme/services/whatsapp_parser.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 StoredExchange row(
@@ -183,6 +185,48 @@ void main() {
     expect(File(p.join(dir.path, store.databaseName)).existsSync(), isFalse);
     expect(await store.chats(), isEmpty);
     expect(await store.feedback(), isEmpty);
+    await store.close();
+  });
+
+  test("a chat's numbers are stored with it", () async {
+    final stats = ChatStats.from(
+      WhatsAppParser.parse(
+        '02/03/2026, 09:00 - Sam: pub?\n02/03/2026, 09:04 - Robin: yes',
+      ),
+      myName: 'Robin',
+    );
+    final store = open();
+    await store.saveChat(chat('Sam').copyWith(stats: stats));
+    await store.close();
+    final reopened = open();
+    final back = (await reopened.chats()).single.stats;
+    expect(back.totalMessages, 2);
+    expect(back.me.medianReplySeconds, 240);
+    await reopened.close();
+  });
+
+  test('a v2 memory gains the numbers column and keeps its chats', () async {
+    final path = p.join(dir.path, 'replylikeme_style_memory.db');
+    final v2 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: (db, v) => SqfliteExchangeStore.createSchema(db, version: 2),
+      ),
+    );
+    await v2.insert('chats', {
+      'my_name': 'Robin',
+      'their_name': 'Sam',
+      'embedding_model': 'text-embedding-3-small',
+      'dimensions': 2,
+      'built_at': DateTime(2026, 9, 1).millisecondsSinceEpoch,
+    });
+    await v2.close();
+
+    final store = open();
+    final chats = await store.chats();
+    expect(chats.single.theirName, 'Sam');
+    expect(chats.single.stats.isEmpty, isTrue);
     await store.close();
   });
 
