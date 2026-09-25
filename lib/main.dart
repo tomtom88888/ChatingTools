@@ -7,19 +7,18 @@ import 'theme/tokens.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   Paper.use(WidgetsBinding.instance.platformDispatcher.platformBrightness);
-  runApp(const ProviderScope(child: ReplyLikeMeApp()));
+  runApp(const ProviderScope(child: DittoApp()));
 }
 
 /// The app, in light or dark to match the phone.
-class ReplyLikeMeApp extends StatefulWidget {
-  const ReplyLikeMeApp({super.key});
+class DittoApp extends StatefulWidget {
+  const DittoApp({super.key});
 
   @override
-  State<ReplyLikeMeApp> createState() => _ReplyLikeMeAppState();
+  State<DittoApp> createState() => _DittoAppState();
 }
 
-class _ReplyLikeMeAppState extends State<ReplyLikeMeApp>
-    with WidgetsBindingObserver {
+class _DittoAppState extends State<DittoApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -56,7 +55,7 @@ class _ReplyLikeMeAppState extends State<ReplyLikeMeApp>
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ReplyLikeMe',
+      title: 'Ditto',
       debugShowCheckedModeBanner: false,
       theme: _theme(),
       home: const RootScreen(),

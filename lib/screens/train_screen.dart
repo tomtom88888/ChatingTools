@@ -324,7 +324,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         ]),
         PaperPanel(
           child: Text(
-            "Share it straight to ReplyLikeMe from that menu and you'll land "
+            "Share it straight to Ditto from that menu and you'll land "
             'on the next step automatically.',
             style: Type.prose(size: 13, color: Paper.body, height: 1.45),
           ),

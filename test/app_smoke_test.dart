@@ -74,7 +74,7 @@ Future<void> pumpApp(
         apiKeyProvider.overrideWith(() => FakeApiKey(apiKey)),
         exchangeStoreProvider.overrideWithValue(store ?? FakeStore()),
       ],
-      child: const ReplyLikeMeApp(),
+      child: const DittoApp(),
     ),
   );
   await tester.pumpAndSettle();
@@ -120,7 +120,7 @@ void main() {
   testWidgets('with a key but nothing learned, home says so', (tester) async {
     await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij');
 
-    expect(find.text('ReplyLikeMe'), findsOneWidget);
+    expect(find.text('Ditto'), findsOneWidget);
     expect(find.text("It doesn't know you yet."), findsOneWidget);
     expect(find.text('Teach it your voice'), findsOneWidget);
 

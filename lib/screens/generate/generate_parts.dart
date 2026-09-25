@@ -198,7 +198,7 @@ class EmptyState extends StatelessWidget {
       ),
       const SizedBox(height: 10),
       const Footnote(
-        'You can also share a screenshot to ReplyLikeMe from your gallery.',
+        'You can also share a screenshot to Ditto from your gallery.',
       ),
     ],
   );

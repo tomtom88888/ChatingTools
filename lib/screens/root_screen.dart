@@ -28,7 +28,7 @@ class RootScreen extends ConsumerWidget {
       ),
       error: (error, _) => PaperScreen(
         children: [
-          MonoLabel('ReplyLikeMe', color: Paper.accent),
+          MonoLabel('Ditto', color: Paper.accent),
           FailureNotice(
             error: error,
             title: "Couldn't read the saved key",

@@ -199,7 +199,7 @@ void main() {
     testWidgets('the wordmark clears the status bar', (tester) async {
       await pumpHome(tester, chat: hebrewChat());
 
-      final top = tester.getRect(find.text('ReplyLikeMe')).top;
+      final top = tester.getRect(find.text('Ditto')).top;
       expect(top, greaterThanOrEqualTo(statusBar));
     });
 

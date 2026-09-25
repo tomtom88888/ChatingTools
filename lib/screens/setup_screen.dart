@@ -136,7 +136,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            MonoLabel('ReplyLikeMe', color: Paper.accent),
+            MonoLabel('Ditto', color: Paper.accent),
             const SizedBox(height: 12),
             const SerifTitle(
               'It writes back ',

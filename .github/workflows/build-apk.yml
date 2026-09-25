@@ -82,7 +82,7 @@ jobs:
           else
             gh release create "$tag" "${apks[@]}" \
               --target "$GITHUB_SHA" \
-              --title "ReplyLikeMe $version (${GITHUB_SHA::7})" \
+              --title "Ditto $version (${GITHUB_SHA::7})" \
               "${flags[@]}" \
               --notes "APKs built from $GITHUB_SHA, signed with the repository's sideload key: for sideloading only, not for the Play Store. Most phones want app-arm64-v8a-release.apk; app-release.apk is the universal build."
           fi

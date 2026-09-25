@@ -218,7 +218,7 @@ class _HomeFrame extends StatelessWidget {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Expanded(child: MonoLabel('ReplyLikeMe')),
+          const Expanded(child: MonoLabel('Ditto')),
           GestureDetector(
             onTap: onSettings,
             child: Container(

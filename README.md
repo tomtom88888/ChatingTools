@@ -1,4 +1,4 @@
-# ReplyLikeMe
+# Ditto
 
 A Flutter app (Android + iOS) that suggests WhatsApp replies written in *your*
 texting style, learned from your own chat exports.
@@ -143,7 +143,9 @@ flutter run           # on a connected device or emulator
 ```
 
 The Android and iOS projects are committed, so a clone builds as-is. The bundle
-id is `com.example.replylikeme` — change it before you publish anything:
+id is `com.example.replylikeme` — the app's working title, kept so updates install
+over earlier builds without losing your learned chats. Change it before you
+publish anything:
 
 - `android/app/build.gradle.kts` → `namespace` and `applicationId`
 - `ios/Runner.xcodeproj/project.pbxproj` → `PRODUCT_BUNDLE_IDENTIFIER`
@@ -208,7 +210,7 @@ scroll to the bottom → **Export chat** → **Without media**.
 **On iOS:** open the chat → tap the contact or group name at the top → scroll to
 the bottom → **Export Chat** → **Without Media**.
 
-Then either share it straight into ReplyLikeMe, or save it (Files, Drive,
+Then either share it straight into Ditto, or save it (Files, Drive,
 Downloads) and pick it with the file picker in the Train screen.
 
 To add another person, export their chat the same way: it becomes a second

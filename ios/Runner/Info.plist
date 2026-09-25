@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>ReplyLikeMe</string>
+	<string>Ditto</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>replylikeme</string>
+	<string>Ditto</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -50,7 +50,7 @@
 	     screenshot you pick. Nothing is uploaded except that one image, to
 	     OpenAI, with your own key. -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ReplyLikeMe reads the conversation screenshot you pick so it can suggest replies. Only the screenshot you choose is sent to OpenAI with your own API key.</string>
+	<string>Ditto reads the conversation screenshot you pick so it can suggest replies. Only the screenshot you choose is sent to OpenAI with your own API key.</string>
 
 	<!-- Only needed if you add the optional Share Extension target; see the
 	     README. Both keys are ignored until that target exists. -->
@@ -68,7 +68,7 @@
 		</dict>
 	</array>
 
-	<!-- Let the Files app hand .txt and .zip exports to ReplyLikeMe. -->
+	<!-- Let the Files app hand .txt and .zip exports to Ditto. -->
 	<key>UISupportsDocumentBrowser</key>
 	<false/>
 	<key>CFBundleDocumentTypes</key>
