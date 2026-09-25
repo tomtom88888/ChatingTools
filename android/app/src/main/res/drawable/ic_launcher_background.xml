@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Ditto tile: teal, lighter top left to darker bottom right. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#0A8C79"
+        android:endColor="#046858"
+        android:type="linear" />
+</shape>

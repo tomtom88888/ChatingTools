@@ -3,7 +3,7 @@ description: >-
   Suggests WhatsApp replies written in your own texting style, learned from
   your own chat exports. All chat data stays on the device.
 publish_to: "none"
-version: 0.3.0+3
+version: 0.3.1+4
 
 environment:
   sdk: ^3.12.0
@@ -39,6 +39,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # The logo, drawn in the app. The launcher icons are generated from
+    # assets/branding/ditto-icon.svg into the Android and iOS projects.
+    - assets/branding/ditto-icon-512.png
 
   fonts:
     # Nunito, the app's one family, bundled rather than fetched at runtime so

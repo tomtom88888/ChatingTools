@@ -136,8 +136,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            MonoLabel('Ditto', color: Paper.accent),
-            const SizedBox(height: 12),
+            const DittoLogo(size: 52, nameSize: 22),
+            const SizedBox(height: 18),
             const SerifTitle(
               'It writes back ',
               accent: 'in your words',

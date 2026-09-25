@@ -118,6 +118,11 @@ Suggestions appear as the green bubbles they would be once sent, with a
 double tick once copied. It follows the phone between light and dark mode,
 switching live without losing your place.
 
+The icon (two smiling speech bubbles echoing each other) is drawn in
+`assets/branding/ditto-icon.svg`. The Android adaptive icon (a bubbles layer
+over a teal gradient background), the legacy Android icons, the iOS icon set
+and the in-app logo are all rendered from it.
+
 Nunito is bundled (Latin subset, SIL Open Font License, see
 `assets/fonts/Nunito-OFL.txt`); Hebrew, Arabic and other scripts fall back to
 the phone's own font.

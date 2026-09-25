@@ -751,3 +751,29 @@ class BackArrow extends StatelessWidget {
     ),
   );
 }
+
+/// The app's logo: the icon, and the name beside it.
+class DittoLogo extends StatelessWidget {
+  const DittoLogo({this.size = 32, this.nameSize = 17, super.key});
+
+  /// The icon's width and height.
+  final double size;
+
+  final double nameSize;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Image.asset(
+        'assets/branding/ditto-icon-512.png',
+        width: size,
+        height: size,
+        filterQuality: FilterQuality.medium,
+        semanticLabel: 'Ditto logo',
+      ),
+      SizedBox(width: size * 0.3),
+      Text('Ditto', style: Type.strong(size: nameSize)),
+    ],
+  );
+}
