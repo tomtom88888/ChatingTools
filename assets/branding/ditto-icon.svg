@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Ditto</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A8C79"/>
+      <stop offset="1" stop-color="#046858"/>
+    </linearGradient>
+    <linearGradient id="bubbleWhite" x1="200" y1="150" x2="620" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.6" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2F6EE"/>
+    </linearGradient>
+    <linearGradient id="bubbleMint" x1="430" y1="500" x2="860" y2="910" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A6F3D7"/>
+      <stop offset="0.55" stop-color="#6FE6C4"/>
+      <stop offset="1" stop-color="#1ECFAD"/>
+    </linearGradient>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#023F35" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect width="1024" height="1024" rx="230" fill="url(#tile)"/>
+
+  <!-- Sound arcs, upper right: the first voice -->
+  <g fill="none" stroke="#7FEDCF" stroke-width="34" stroke-linecap="round">
+    <path d="M678.2 386.9 A55 55 0 0 1 718.8 444.8"/>
+    <path d="M695.1 324.1 A120 120 0 0 1 783.5 450.5"/>
+    <path d="M711.9 261.3 A185 185 0 0 1 848.3 456.1"/>
+  </g>
+
+  <!-- Sound arcs, lower left: the echo -->
+  <g fill="none" stroke="#7FEDCF" stroke-width="34" stroke-linecap="round">
+    <path d="M365.8 685.1 A55 55 0 0 1 325.0 632.0"/>
+    <path d="M348.9 747.9 A120 120 0 0 1 260.0 632.0"/>
+    <path d="M332.1 810.7 A185 185 0 0 1 195.0 632.0"/>
+  </g>
+
+  <!-- White bubble, tail bottom left -->
+  <g filter="url(#lift)" fill="url(#bubbleWhite)">
+    <ellipse cx="405" cy="343" rx="236" ry="198" transform="rotate(-8 405 343)"/>
+    <path d="M214 452 C204 500 186 540 165 578 C160 588 168 596 178 592 C215 578 252 556 288 530 Z"/>
+  </g>
+  <g fill="#0B7563">
+    <rect x="344" y="312" width="42" height="84" rx="21" transform="rotate(-6 365 354)"/>
+    <rect x="495" y="270" width="42" height="84" rx="21" transform="rotate(-6 516 312)"/>
+  </g>
+  <path d="M407 398 C436 420 480 416 506 386" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- Mint bubble, tail bottom right -->
+  <g filter="url(#lift)" fill="url(#bubbleMint)">
+    <ellipse cx="640" cy="686" rx="230" ry="194" transform="rotate(-8 640 686)"/>
+    <path d="M808 800 C814 842 828 876 846 904 C852 914 845 922 834 918 C790 904 750 888 712 870 Z"/>
+  </g>
+  <g fill="#0B7563">
+    <rect x="500" y="612" width="42" height="84" rx="21" transform="rotate(6 521 654)"/>
+    <rect x="646" y="654" width="42" height="84" rx="21" transform="rotate(6 667 696)"/>
+  </g>
+  <path d="M538 728 C562 758 606 760 632 738" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
+</svg>
