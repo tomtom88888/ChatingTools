@@ -35,7 +35,8 @@ class SqfliteExchangeStore implements ExchangeStore {
   /// v2: a `chats` table, per-exchange chat ids and content hashes, and the
   ///     feedback log.
   /// v3: each chat's numbers for the chat data screen.
-  static const int schemaVersion = 3;
+  /// v4: whether a chat is a group chat.
+  static const int schemaVersion = 4;
 
   Database? _database;
   final Map<int, List<StoredExchange>> _cache = {};
@@ -57,6 +58,7 @@ class SqfliteExchangeStore implements ExchangeStore {
         onUpgrade: (db, from, to) async {
           if (from < 2) await _upgradeToV2(db);
           if (from < 3) await _upgradeToV3(db);
+          if (from < 4) await _upgradeToV4(db);
         },
       ),
     );
@@ -101,7 +103,13 @@ class SqfliteExchangeStore implements ExchangeStore {
     ''');
     await _createV2Tables(db);
     if (version >= 3) await _upgradeToV3(db);
+    if (version >= 4) await _upgradeToV4(db);
   }
+
+  /// Marks group chats. Every chat learned before this is one-to-one.
+  static Future<void> _upgradeToV4(DatabaseExecutor db) => db.execute(
+    'ALTER TABLE chats ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0',
+  );
 
   /// Adds the column for each chat's numbers. Chats imported before it read
   /// as having none until their export is imported again.
@@ -249,6 +257,7 @@ class SqfliteExchangeStore implements ExchangeStore {
       savedCount: (row['saved'] as num?)?.toInt() ?? 0,
       profile: StyleProfile.fromJson(decode('profile_json')),
       stats: ChatStats.fromJson(decode('stats_json')),
+      isGroup: (row['is_group'] as num?)?.toInt() == 1,
     );
   }
 
@@ -270,6 +279,7 @@ class SqfliteExchangeStore implements ExchangeStore {
         'enabled': chat.enabled ? 1 : 0,
         'profile_json': jsonEncode(chat.profile.toJson()),
         'stats_json': jsonEncode(chat.stats.toJson()),
+        'is_group': chat.isGroup ? 1 : 0,
       };
       if (chat.id < 0) {
         chatId = await txn.insert('chats', values);

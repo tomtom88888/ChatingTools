@@ -140,6 +140,20 @@ class _TranscriptLine extends StatelessWidget {
           children: [
             // The message this one replies to, drawn like WhatsApp's quote
             // box so it reads as context rather than as words sent here.
+            // In a group, who wrote it, as WhatsApp labels the others'
+            // bubbles.
+            if (!mine && message.author != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  message.author!,
+                  style: Type.strong(
+                    size: 12.5,
+                    color: _authorColour(message.author!),
+                    height: 1.3,
+                  ),
+                ),
+              ),
             if (message.quoted != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 5),
@@ -217,4 +231,31 @@ class _SideToggle extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A steady colour per name, from a small set that reads on both themes, so
+/// the members of a group are told apart at a glance as in WhatsApp.
+Color _authorColour(String name) {
+  const light = [
+    Color(0xFF1F7AC6),
+    Color(0xFFB4501E),
+    Color(0xFF7B4FC6),
+    Color(0xFF0F8A5F),
+    Color(0xFFC0306A),
+    Color(0xFF8A6D00),
+  ];
+  const dark = [
+    Color(0xFF6CB6FF),
+    Color(0xFFFFA36B),
+    Color(0xFFC3A1FF),
+    Color(0xFF53D6A0),
+    Color(0xFFFF8BB8),
+    Color(0xFFE6C34F),
+  ];
+  final palette = Paper.isDark ? dark : light;
+  var hash = 0;
+  for (final unit in name.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7fffffff;
+  }
+  return palette[hash % palette.length];
 }

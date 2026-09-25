@@ -124,6 +124,7 @@ class ChatMemory {
     this.enabled = true,
     this.profile = StyleProfile.empty,
     this.stats = ChatStats.empty,
+    this.isGroup = false,
   });
 
   /// Row id; -1 before insertion.
@@ -155,6 +156,10 @@ class ChatMemory {
   /// counted.
   final ChatStats stats;
 
+  /// A group chat: [theirName] is the group's name, and the other side is
+  /// several people, each named in what they say.
+  final bool isGroup;
+
   bool get isEmpty => exchangeCount == 0;
 
   /// Whether this chat's vectors can be compared with a query embedded using
@@ -174,6 +179,7 @@ class ChatMemory {
     bool? enabled,
     StyleProfile? profile,
     ChatStats? stats,
+    bool? isGroup,
   }) => ChatMemory(
     id: id ?? this.id,
     myName: myName ?? this.myName,
@@ -186,6 +192,7 @@ class ChatMemory {
     enabled: enabled ?? this.enabled,
     profile: profile ?? this.profile,
     stats: stats ?? this.stats,
+    isGroup: isGroup ?? this.isGroup,
   );
 
   @override

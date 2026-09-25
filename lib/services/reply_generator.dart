@@ -60,13 +60,13 @@ class ReplyGenerator {
   }) {
     final turns = <ChatTurn>[];
     final buffer = <String>[];
-    Speaker? current;
+    String? current;
 
     void flush() {
       if (current == null || buffer.isEmpty) return;
       turns.add(
         ChatTurn(
-          sender: current == Speaker.me ? myName : theirName,
+          sender: current,
           text: buffer.join('\n'),
           messageCount: buffer.length,
         ),
@@ -74,11 +74,15 @@ class ReplyGenerator {
       buffer.clear();
     }
 
+    // In a group each of the others is named, and a new name is a new turn.
     for (final message in messages) {
       if (message.text.trim().isEmpty) continue;
-      if (current != message.speaker) {
+      final sender = message.speaker == Speaker.me
+          ? myName
+          : (message.author ?? theirName);
+      if (current != sender) {
         flush();
-        current = message.speaker;
+        current = sender;
       }
       buffer.add(message.text);
     }
@@ -98,6 +102,7 @@ class ReplyGenerator {
     String note = '',
     StyleProfile profile = StyleProfile.empty,
     List<String> voiceSample = const [],
+    bool group = false,
   }) async {
     if (conversation.isEmpty) {
       throw const OpenAiException(
@@ -126,6 +131,7 @@ class ReplyGenerator {
           profile: profile,
           voiceSample: voiceSample,
           newTopic: newTopic,
+          group: group,
         );
 
     final answers = await _bestDrafts(
@@ -192,6 +198,7 @@ class ReplyGenerator {
     String note = '',
     StyleProfile profile = StyleProfile.empty,
     List<String> voiceSample = const [],
+    bool group = false,
   }) async {
     final me = _name(settings.myName, 'the user');
     final messages = buildMessages(
@@ -202,6 +209,7 @@ class ReplyGenerator {
       profile: profile,
       voiceSample: voiceSample,
       newTopic: suggestion.isNewTopic,
+      group: group,
       extra:
           'You had drafted this as your next message:\n'
           '${suggestion.text}\n\n'
@@ -240,6 +248,7 @@ class ReplyGenerator {
     StyleProfile profile = StyleProfile.empty,
     List<String> voiceSample = const [],
     bool newTopic = false,
+    bool group = false,
     String? extra,
   }) {
     final me = settings.myName;
@@ -253,13 +262,18 @@ class ReplyGenerator {
           note: note,
           newTopic: newTopic,
           hasExamples: examples.isNotEmpty,
+          group: group,
           extra: extra,
         ),
       },
       for (final example in examples.reversed) ...[
         {
           'role': 'user',
-          'content': _theirSide(example.exchange.context, me: me),
+          'content': _theirSide(
+            example.exchange.context,
+            me: me,
+            named: group || _othersIn(example.exchange.context, me) > 1,
+          ),
         },
         {'role': 'assistant', 'content': example.exchange.replyText},
       ],
@@ -268,6 +282,7 @@ class ReplyGenerator {
         'content': buildUserPrompt(
           conversation: conversation,
           settings: settings,
+          group: group,
         ),
       },
     ];
@@ -276,21 +291,38 @@ class ReplyGenerator {
   /// A retrieved exchange's lead-up, as it appears in a user turn. Your own
   /// earlier lines in it are kept and marked, since they are part of what
   /// was said.
-  static String _theirSide(List<ChatTurn> context, {required String me}) =>
-      context
-          .map((t) => t.sender == me ? '(you) ${t.text}' : t.text)
-          .join('\n');
+  ///
+  /// With [named] — in a group, where "them" is several people — each of
+  /// the others' lines starts with who said it.
+  static String _theirSide(
+    List<ChatTurn> context, {
+    required String me,
+    bool named = false,
+  }) => context
+      .map(
+        (t) => t.sender == me
+            ? '(you) ${t.text}'
+            : (named ? '${t.sender}: ${t.text}' : t.text),
+      )
+      .join('\n');
+
+  /// How many different people besides [me] speak in [turns].
+  static int _othersIn(List<ChatTurn> turns, String me) => {
+    for (final t in turns)
+      if (t.sender != me) t.sender,
+  }.length;
 
   /// The live chat as the final user turn: the other person's lines, with
   /// your own earlier ones marked, in the same shape as the examples.
   static String buildUserPrompt({
     required List<ChatTurn> conversation,
     required AppSettings settings,
+    bool group = false,
   }) {
     final recent = conversation.length > settings.contextTurns
         ? conversation.sublist(conversation.length - settings.contextTurns)
         : conversation;
-    return _theirSide(recent, me: settings.myName);
+    return _theirSide(recent, me: settings.myName, named: group);
   }
 
   /// The system prompt: the editable instructions with the names filled in,
@@ -303,12 +335,15 @@ class ReplyGenerator {
     String note = '',
     bool newTopic = false,
     bool hasExamples = true,
+    bool group = false,
     String? extra,
   }) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
-    final them = settings.theirName.isEmpty
-        ? 'someone they know'
-        : settings.theirName;
+    final name = settings.theirName;
+    // In a group, "{them}" is the chat, not a person.
+    final them = group
+        ? (name.isEmpty ? 'a group chat' : 'the group chat "$name"')
+        : (name.isEmpty ? 'someone they know' : name);
     final out = StringBuffer(
       settings.effectiveSystemPrompt
           .replaceAll('{me}', me)
@@ -324,9 +359,16 @@ class ReplyGenerator {
     }
 
     section(
-      'How this chat is laid out: each user message is what $them said '
-      '(lines marked "(you)" are yours, from earlier), and each assistant '
-      'message is exactly what $me sent back.'
+      '${group ? "How this chat is laid out: each user message is what the "
+                "others in $them said, each line starting with who said it "
+                "(lines marked \"(you)\" are yours, from earlier), and each "
+                "assistant message is exactly what $me sent back. Several "
+                "people are talking: answer as $me would in the group — to "
+                "whoever it makes sense to answer, usually the last message, "
+                "without addressing everyone." : "How this chat is laid out: "
+                "each user message is what $them said (lines marked "
+                "\"(you)\" are yours, from earlier), and each assistant "
+                "message is exactly what $me sent back."}'
       '${hasExamples ? " The earlier pairs are real moments from $me's chat "
                 "history, chosen because they resemble this one — the last "
                 "pair is the closest." : ""}',
@@ -358,10 +400,16 @@ class ReplyGenerator {
 
     if (newTopic) {
       section(
-        'For this next message, do not answer what $them just said. Move the '
-        'conversation on to something else, the way $me would change the '
-        'subject with $them — still sounding like $me, and still fitting '
-        'where the chat has got to.',
+        group
+            ? 'For this next message, do not answer what was just said. Move '
+                  'the conversation in $them on to something else, the way $me '
+                  'would change the subject in front of everyone — still '
+                  'sounding like $me, and still fitting where the chat has '
+                  'got to.'
+            : 'For this next message, do not answer what $them just said. '
+                  'Move the conversation on to something else, the way $me '
+                  'would change the subject with $them — still sounding like '
+                  '$me, and still fitting where the chat has got to.',
       );
     }
     section(extra ?? '');

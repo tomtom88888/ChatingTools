@@ -76,11 +76,17 @@ class FineTuneService {
       if (context.isEmpty) continue;
 
       final messages = <Map<String, String>>[
-        {'role': 'system', 'content': systemMessage(me, them)},
+        {
+          'role': 'system',
+          'content': systemMessage(me, them, group: chat?.isGroup ?? false),
+        },
         for (final turn in context)
           {
             'role': turn.sender == me ? 'assistant' : 'user',
-            'content': turn.text,
+            // In a group, the others are told apart by name.
+            'content': turn.sender != me && (chat?.isGroup ?? false)
+                ? '${turn.sender}: ${turn.text}'
+                : turn.text,
           },
         {'role': 'assistant', 'content': exchange.replyText},
       ];
@@ -90,9 +96,15 @@ class FineTuneService {
     return lines.isEmpty ? '' : '${lines.join('\n')}\n';
   }
 
-  static String systemMessage(String myName, String theirName) {
+  static String systemMessage(
+    String myName,
+    String theirName, {
+    bool group = false,
+  }) {
     final me = myName.isEmpty ? 'the user' : myName;
-    final them = theirName.isEmpty ? 'a friend' : theirName;
+    final them = group
+        ? (theirName.isEmpty ? 'a group chat' : 'the group chat "$theirName"')
+        : (theirName.isEmpty ? 'a friend' : theirName);
     return 'You are $me, texting $them on WhatsApp. Reply exactly as $me '
         'would: same tone, length, slang, emoji use, capitalisation and '
         'language mix. Output only the message.';

@@ -205,6 +205,20 @@ void main() {
     await reopened.close();
   });
 
+  test('a group chat stays one after reopening', () async {
+    final store = open();
+    await store.saveChat(chat('Friday crew').copyWith(isGroup: true));
+    await store.saveChat(chat('Sam'));
+    await store.close();
+    final reopened = open();
+    final chats = await reopened.chats();
+    expect(chats.map((c) => (c.theirName, c.isGroup)), [
+      ('Friday crew', true),
+      ('Sam', false),
+    ]);
+    await reopened.close();
+  });
+
   test('a v2 memory gains the numbers column and keeps its chats', () async {
     final path = p.join(dir.path, 'replylikeme_style_memory.db');
     final v2 = await databaseFactoryFfi.openDatabase(
@@ -227,6 +241,7 @@ void main() {
     final chats = await store.chats();
     expect(chats.single.theirName, 'Sam');
     expect(chats.single.stats.isEmpty, isTrue);
+    expect(chats.single.isGroup, isFalse, reason: 'every older chat is 1:1');
     await store.close();
   });
 

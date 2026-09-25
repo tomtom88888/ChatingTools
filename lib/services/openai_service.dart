@@ -385,15 +385,22 @@ class OpenAiService {
       '"text", and the quoted text, without the name, in "quoted". Never put '
       'the quoted text in "text", and never output the quoted box as a '
       'message of its own.\n\n'
+      'Group chats: each of the other people\'s bubbles shows the sender\'s '
+      'name at its top, often in colour (a run of bubbles from one person '
+      'may show it only on the first). Put that name in "name" for every '
+      'one of their bubbles — repeat it down a run — and never in "text". '
+      'Leave "name" out in a one-to-one chat and for right-aligned bubbles.\n\n'
       'Reply with JSON only.';
 
   static const String _visionUserPrompt =
       'Transcribe this conversation. Respond with a JSON object of the form '
       '{"messages": [{"sender": "me" | "them", "text": "...", '
-      '"quoted": "..."}]} where "me" is a right-aligned bubble and "them" is a '
-      'left-aligned bubble. Include "quoted" only for a bubble that replies to '
-      'another message. If a bubble is only an image, sticker or voice note, '
-      'use its text as an empty string. Output nothing but the JSON object.';
+      '"quoted": "...", "name": "..."}]} where "me" is a right-aligned bubble '
+      'and "them" is a left-aligned bubble. Include "quoted" only for a bubble '
+      'that replies to another message, and "name" only for a left-aligned '
+      'bubble in a group chat. If a bubble is only an image, sticker or voice '
+      'note, use its text as an empty string. Output nothing but the JSON '
+      'object.';
 
   /// Validates and parses the vision model's JSON.
   ///

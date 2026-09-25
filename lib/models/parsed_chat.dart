@@ -61,5 +61,8 @@ class ParsedChat {
 
   List<String> get senders => senderMessageCounts.keys.toList(growable: false);
 
+  /// More than two people wrote in it.
+  bool get isGroup => senders.length > 2;
+
   int get textMessageCount => messages.where((m) => m.carriesStyle).length;
 }

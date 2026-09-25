@@ -143,7 +143,7 @@ the phone's own font.
 git clone https://github.com/tomtom88888/ChatingTools.git
 cd ChatingTools
 flutter pub get
-flutter test          # 235 tests, no network or device needed
+flutter test          # 252 tests, no network or device needed
 flutter run           # on a connected device or emulator
 ```
 
@@ -226,8 +226,14 @@ replies are sent to be embedded.
 needs — media placeholders carry no style information. "Include media" produces
 a `.zip`, which the app also reads, but it is far larger for no benefit.
 
-A one-to-one chat works best. Group exports are parsed fine, but the app models
-one person replying to one other person.
+**Group chats work too.** An export with more than two people in it is
+imported as a group: the group's name is taken from the file name (and can be
+edited), you pick yourself from the list of members, and every reply you sent
+in the group — to anyone — is learned, with who said what kept in the
+context. When writing into a group, the screenshot reader keeps the name shown
+above each of the others' bubbles, the model sees every line with its
+sender's name and is told several people are talking, and Chat data adds who
+talks most. Groups are marked with a group icon on the home screen.
 
 ### What the parser handles
 
@@ -350,7 +356,7 @@ lib/
     settings/                settings widgets and the spending section
   theme/tokens.dart          the light and dark palettes, type and corners
   widgets/                   the shared widget kit, dialogs, formatting
-test/                        235 tests (209 unit, 26 widget)
+test/                        252 tests (224 unit, 28 widget)
 test/fixtures/               synthetic Android and iOS exports
 ```
 
@@ -382,7 +388,7 @@ them.
 flutter test
 ```
 
-235 tests, and no network or device is needed for any of them.
+252 tests, and no network or device is needed for any of them.
 
 The unit tests cover the parser against synthetic Android and iOS exports, the
 `.txt`/`.zip` reader and pasted text, the vector maths and retrieval (a heap

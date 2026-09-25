@@ -259,4 +259,16 @@ void main() {
     expect(entry.picked, isFalse);
     expect(entry.shownKinds, hasLength(3));
   });
+
+  testWidgets('a pasted group chat shows who said what', (tester) async {
+    clipboard = 'Sam: friday?\nPriya: where though\nme: usual place';
+    await pump(tester);
+    await tester.tap(find.text('Paste the conversation'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use this'));
+    await tester.pumpAndSettle();
+    // Each of the others is named above their bubble, as in WhatsApp.
+    expect(find.text('Sam'), findsWidgets);
+    expect(find.text('Priya'), findsOneWidget);
+  });
 }

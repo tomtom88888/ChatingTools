@@ -117,6 +117,11 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
         trailing: _Legend(them: them),
         child: _Duels(stats: stats, them: them),
       ),
+      if (stats.members.length > 1)
+        _Section(
+          label: 'Who talks most',
+          child: _Members(stats: stats),
+        ),
       _Section(
         label: 'When you talk',
         child: _WhenYouTalk(stats: stats),
@@ -656,6 +661,91 @@ class _DuelRow extends StatelessWidget {
           bar(duel.mine, Paper.ink, duel.myText, 'You'),
           const SizedBox(height: 5),
           bar(duel.theirs, Paper.accent, duel.theirText, them),
+        ],
+      ),
+    );
+  }
+}
+
+/// In a group: everyone's message count, you included, most first.
+class _Members extends StatelessWidget {
+  const _Members({required this.stats});
+
+  final ChatStats stats;
+
+  static const int shown = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      ('You', stats.me.messages, true),
+      for (final m in stats.members.entries) (m.key, m.value, false),
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    final top = rows.first.$2;
+    final hidden = rows.length - shown;
+    return PaperCard(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (name, count, isMe) in rows.take(shown))
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 110,
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: isMe
+                          ? Type.strong(size: 13.5)
+                          : Type.prose(size: 13.5, color: Paper.body),
+                    ),
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, box) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          width: top == 0
+                              ? 0
+                              : (count / top * box.maxWidth).clamp(
+                                  count > 0 ? 3.0 : 0.0,
+                                  box.maxWidth,
+                                ),
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: isMe ? Paper.ink : Paper.accent,
+                            borderRadius: const BorderRadius.horizontal(
+                              right: Radius.circular(4),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 64,
+                    child: Text(
+                      grouped(count),
+                      textAlign: TextAlign.end,
+                      style: Type.numeric(size: 12.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (hidden > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'and $hidden more',
+                style: Type.prose(size: 12.5, color: Paper.muted),
+              ),
+            ),
         ],
       ),
     );

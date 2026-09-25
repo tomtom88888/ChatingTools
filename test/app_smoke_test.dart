@@ -390,4 +390,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(background(), Palette.light.bg);
   });
+
+  testWidgets('a group chat is marked on home, and its members counted', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 9000);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final stats = ChatStats.from(
+      WhatsAppParser.parse(
+        '02/03/2026, 19:00 - Sam: friday?\n'
+        '02/03/2026, 19:01 - Priya: me!!\n'
+        '02/03/2026, 19:02 - Robin: yes\n'
+        '02/03/2026, 19:03 - Alex: cant',
+      ),
+      myName: 'Robin',
+    );
+    await pumpApp(
+      tester,
+      apiKey: 'sk-test-0123456789abcdefghij',
+      store: FakeStore(
+        chats: [
+          exampleChat(
+            them: 'Friday crew',
+          ).copyWith(isGroup: true, stats: stats),
+        ],
+        rows: [exampleExchange()],
+      ),
+    );
+    expect(find.byIcon(Icons.groups_rounded), findsOneWidget);
+
+    await tester.tap(find.text('Chat data'));
+    await tester.pumpAndSettle();
+    expect(find.text('Who talks most'), findsOneWidget);
+    for (final name in ['You', 'Sam', 'Priya', 'Alex']) {
+      expect(find.text(name), findsWidgets);
+    }
+  });
 }

@@ -192,6 +192,7 @@ class StyleMemoryService {
     required int dimensions,
     StyleProfile profile = StyleProfile.empty,
     ChatStats stats = ChatStats.empty,
+    bool isGroup = false,
     ImportPlan? importPlan,
     void Function(StyleMemoryProgress)? onProgress,
     bool Function()? isCancelled,
@@ -286,6 +287,7 @@ class StyleMemoryService {
               enabled: true,
               profile: profile.isEmpty ? base?.profile : profile,
               stats: stats.isEmpty ? base?.stats : stats,
+          isGroup: isGroup,
             );
     return store.saveChat(
       chat,

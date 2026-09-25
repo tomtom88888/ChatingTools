@@ -85,6 +85,7 @@ class QuotedReplies {
             speaker: message.speaker,
             text: rest,
             quoted: explicit ?? candidate.quote,
+            author: message.author,
           );
         }
       }

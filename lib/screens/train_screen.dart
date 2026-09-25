@@ -20,6 +20,7 @@ import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
+import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
 import 'finetune_screen.dart';
 
@@ -53,6 +54,11 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
   String? _sourceName;
   String? _myName;
   String? _theirName;
+
+  /// More than two people wrote in the export. [_theirName] is then the
+  /// group's name, typed in [_groupName].
+  bool _isGroup = false;
+  final _groupName = TextEditingController();
   List<Exchange> _exchanges = const [];
 
   /// What building would do with [_exchanges]: which are new, and whether it
@@ -66,6 +72,12 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
   Object? _error;
   ChatMemory? _built;
   int? _addedCount;
+
+  @override
+  void dispose() {
+    _groupName.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -131,15 +143,24 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       final mine = senders.contains(settings.myName)
           ? settings.myName
           : senders.first;
-      final theirs =
-          senders.contains(settings.theirName) && settings.theirName != mine
+      // A group is named for the chat, which WhatsApp puts in the file's
+      // name; a one-to-one chat for the other person.
+      final group = chat.isGroup;
+      final groupName = group
+          ? (ChatExportReader.chatNameFromFilename(name) ?? '')
+          : '';
+      final theirs = group
+          ? groupName
+          : senders.contains(settings.theirName) && settings.theirName != mine
           ? settings.theirName
           : senders.firstWhere((s) => s != mine, orElse: () => senders.last);
+      _groupName.text = groupName;
       setState(() {
         _chat = chat;
         _sourceName = name;
         _myName = mine;
         _theirName = theirs;
+        _isGroup = group;
         _step = _Step.read;
       });
       _recomputeExchanges();
@@ -237,6 +258,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         stats: chat == null
             ? ChatStats.empty
             : ChatStats.from(chat, myName: me),
+        isGroup: _isGroup,
         importPlan: plan,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
@@ -359,7 +381,13 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       bottom: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (noQualifying)
+          if (noQualifying && _isGroup)
+            const Notice(
+              'Nothing to learn from. This nearly always means the wrong '
+              'name is picked as you — pick yourself in the list above.',
+              tone: NoticeTone.caution,
+            )
+          else if (noQualifying)
             Notice(
               'Nothing to learn from. This nearly always means the wrong '
               'name is set as you. Swap ${bidiIsolate(_myName ?? "them")} '
@@ -414,7 +442,12 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
                 : 'Build the memory',
             centred: true,
             tone: ActionTone.accent,
-            onTap: noQualifying || plan == null ? null : _build,
+            onTap:
+                noQualifying ||
+                    plan == null ||
+                    (_isGroup && (_theirName ?? '').isEmpty)
+                ? null
+                : _build,
           ),
           const SizedBox(height: 11),
           Footnote(footnote),
@@ -446,21 +479,39 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
           ],
         ),
         _ReadSummary(chat: chat, myName: _myName!, theirName: _theirName!),
-        _WhoIsWho(
-          senders: chat.senders,
-          myName: _myName!,
-          theirName: _theirName!,
-          onPick: (mine) {
-            setState(() {
-              _myName = mine;
-              _theirName = chat.senders.firstWhere(
-                (s) => s != mine,
-                orElse: () => mine,
-              );
-            });
-            _recomputeExchanges();
-          },
-        ),
+        if (_isGroup)
+          _GroupWhoIsWho(
+            counts: chat.senderMessageCounts,
+            myName: _myName!,
+            nameController: _groupName,
+            onPick: (mine) {
+              setState(() => _myName = mine);
+              _recomputeExchanges();
+            },
+            onName: (name) {
+              setState(() {
+                _theirName = name.trim();
+                _plan = null;
+              });
+              unawaited(_replan());
+            },
+          )
+        else
+          _WhoIsWho(
+            senders: chat.senders,
+            myName: _myName!,
+            theirName: _theirName!,
+            onPick: (mine) {
+              setState(() {
+                _myName = mine;
+                _theirName = chat.senders.firstWhere(
+                  (s) => s != mine,
+                  orElse: () => mine,
+                );
+              });
+              _recomputeExchanges();
+            },
+          ),
       ],
     );
   }
@@ -509,6 +560,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
             added: _addedCount ?? done.exchangeCount,
             total: done.exchangeCount,
             theirName: done.theirName.isEmpty ? 'them' : done.theirName,
+            isGroup: done.isGroup,
           ),
       ],
     );
@@ -643,6 +695,140 @@ class _WhoIsWho extends StatelessWidget {
         color: Paper.secondary,
       ),
     ],
+  );
+}
+
+/// For a group: every member to pick yourself from, busiest first, and the
+/// group's name.
+class _GroupWhoIsWho extends StatelessWidget {
+  const _GroupWhoIsWho({
+    required this.counts,
+    required this.myName,
+    required this.nameController,
+    required this.onPick,
+    required this.onName,
+  });
+
+  final Map<String, int> counts;
+  final String myName;
+  final TextEditingController nameController;
+  final ValueChanged<String> onPick;
+  final ValueChanged<String> onName;
+
+  @override
+  Widget build(BuildContext context) {
+    final members = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.groups_rounded, size: 18, color: Paper.accent),
+            const SizedBox(width: 6),
+            Text(
+              'A group chat · ${members.length} people',
+              style: Type.strong(size: 13, color: Paper.accent, height: 1.35),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text('What is the group called?', style: Type.strong(size: 13)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: nameController,
+          onChanged: onName,
+          textCapitalization: TextCapitalization.sentences,
+          style: Type.prose(size: 15, color: Paper.ink),
+          decoration: paperFieldDecoration(
+            'e.g. Family, Uni friends',
+            monoHint: false,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text('Which one is you?', style: Type.strong(size: 13, height: 1.35)),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final member in members)
+              _MemberChip(
+                name: member.key,
+                count: member.value,
+                selected: member.key == myName,
+                onTap: () => onPick(member.key),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        emphasised(
+          'Only *${bidiIsolate(myName)}*’s replies get learned — to anyone '
+          'in the group. Everyone else is what you are replying to.',
+          size: 13,
+          color: Paper.secondary,
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({
+    required this.name,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String name;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? Paper.accent : Paper.card,
+    shape: RoundedRectangleBorder(
+      borderRadius: Corner.all(Corner.pill),
+      side: selected
+          ? BorderSide.none
+          : BorderSide(color: Paper.border, width: 1.5),
+    ),
+    child: InkWell(
+      onTap: onTap,
+      customBorder: const StadiumBorder(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              Icon(Icons.check_rounded, size: 16, color: Paper.onAccent),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              name,
+              style: Type.strong(
+                size: 14,
+                color: selected ? Paper.onAccent : Paper.ink,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              grouped(count),
+              style: Type.numeric(
+                size: 12,
+                color: selected
+                    ? Paper.onAccent.withValues(alpha: 0.75)
+                    : Paper.muted,
+                weight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 }
 
@@ -801,11 +987,13 @@ class _BuiltCard extends StatelessWidget {
     required this.added,
     required this.total,
     required this.theirName,
+    this.isGroup = false,
   });
 
   final int added;
   final int total;
   final String theirName;
+  final bool isGroup;
 
   @override
   Widget build(BuildContext context) => PaperPanel(
@@ -823,8 +1011,9 @@ class _BuiltCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'It knows ${grouped(total)} of the ways you write to '
-          '${bidiIsolate(theirName)}, and the chat is ticked on the home '
+          'It knows ${grouped(total)} of the ways you write '
+          '${isGroup ? "in" : "to"} ${bidiIsolate(theirName)}, and the chat is '
+          'ticked on the home '
           "screen. Screenshot a chat and it'll take it from there.",
           style: Type.prose(size: 13, color: Paper.greenText, height: 1.45),
         ),

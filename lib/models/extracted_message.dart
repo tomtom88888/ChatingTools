@@ -14,6 +14,7 @@ class ExtractedMessage {
     required this.speaker,
     required this.text,
     this.quoted,
+    this.author,
   });
 
   final Speaker speaker;
@@ -26,12 +27,21 @@ class ExtractedMessage {
   /// in this bubble, so it is never part of [text] or of the prompt.
   final String? quoted;
 
-  ExtractedMessage copyWith({Speaker? speaker, String? text, String? quoted}) =>
-      ExtractedMessage(
-        speaker: speaker ?? this.speaker,
-        text: text ?? this.text,
-        quoted: quoted ?? this.quoted,
-      );
+  /// Who wrote it, when the chat shows names — in a group, the name above
+  /// each of the other people's bubbles. `null` in a one-to-one chat.
+  final String? author;
+
+  ExtractedMessage copyWith({
+    Speaker? speaker,
+    String? text,
+    String? quoted,
+    String? author,
+  }) => ExtractedMessage(
+    speaker: speaker ?? this.speaker,
+    text: text ?? this.text,
+    quoted: quoted ?? this.quoted,
+    author: author ?? this.author,
+  );
 
   /// Parses one `{"sender": "me"|"them", "text": "..."}` entry.
   ///
@@ -56,12 +66,27 @@ class ExtractedMessage {
       _ => throw FormatException('unknown sender "$sender"'),
     };
     final quoted = raw['quoted'] ?? raw['quote'] ?? raw['reply_to'];
+    final author = raw['name'] ?? raw['author'];
+    var body = text.trim();
+    final name = author is String && author.trim().isNotEmpty
+        ? author.trim()
+        : null;
+    // A model that copies the name label into the text as well.
+    if (name != null && speaker == Speaker.them) {
+      for (final prefix in ['$name\n', '$name: ', '$name:']) {
+        if (body.startsWith(prefix)) {
+          body = body.substring(prefix.length).trim();
+          break;
+        }
+      }
+    }
     return ExtractedMessage(
       speaker: speaker,
-      text: text.trim(),
+      text: body,
       quoted: quoted is String && quoted.trim().isNotEmpty
           ? quoted.trim()
           : null,
+      author: speaker == Speaker.them ? name : null,
     );
   }
 
@@ -69,6 +94,7 @@ class ExtractedMessage {
     'sender': speaker.name,
     'text': text,
     if (quoted != null) 'quoted': quoted,
+    if (author != null) 'name': author,
   };
 
   @override

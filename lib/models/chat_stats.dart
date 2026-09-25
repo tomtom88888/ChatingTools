@@ -127,6 +127,7 @@ class ChatStats {
     this.busiestDayMessages = 0,
     this.byHour = const [],
     this.byWeekday = const [],
+    this.members = const {},
   });
 
   static const ChatStats empty = ChatStats();
@@ -163,6 +164,12 @@ class ChatStats {
   /// Messages by weekday, Monday first.
   final List<int> byWeekday;
 
+  /// Text messages by each of the other people, most talkative first — in a
+  /// group, who "them" actually is. Up to [keepMembers] names.
+  final Map<String, int> members;
+
+  static const int keepMembers = 12;
+
   int get totalMessages => me.messages + them.messages;
   int get totalWords => me.words + them.words;
   bool get isEmpty => totalMessages == 0;
@@ -179,6 +186,7 @@ class ChatStats {
     final byHour = List<int>.filled(24, 0);
     final byWeekday = List<int>.filled(7, 0);
     final perDay = <DateTime, int>{};
+    final memberCounts = <String, int>{};
 
     ChatMessage? previous;
     for (final message in chat.messages) {
@@ -188,6 +196,10 @@ class ChatStats {
       final isMe = message.sender == myName;
       final tally = isMe ? mine : theirs;
       tally.count(message);
+      if (!isMe && message.kind == MessageKind.text) {
+        memberCounts[message.sender!] =
+            (memberCounts[message.sender!] ?? 0) + 1;
+      }
 
       final at = message.timestamp;
       if (at != null) {
@@ -250,6 +262,7 @@ class ChatStats {
       busiestDayMessages: busiestCount,
       byHour: byHour,
       byWeekday: byWeekday,
+      members: _Tally._top(memberCounts, keepMembers),
     );
   }
 
@@ -269,6 +282,7 @@ class ChatStats {
     'busiestDayMessages': busiestDayMessages,
     'byHour': byHour,
     'byWeekday': byWeekday,
+    'members': members,
   };
 
   factory ChatStats.fromJson(Object? raw) {
@@ -298,6 +312,7 @@ class ChatStats {
       busiestDayMessages: (raw['busiestDayMessages'] as num?)?.toInt() ?? 0,
       byHour: ints('byHour'),
       byWeekday: ints('byWeekday'),
+      members: _counts(raw['members']),
     );
   }
 }

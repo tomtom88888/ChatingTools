@@ -47,6 +47,7 @@ class PastedConversation {
           ExtractedMessage(
             speaker: isMe(m.sender!) ? Speaker.me : Speaker.them,
             text: m.text,
+            author: isMe(m.sender!) ? null : m.sender,
           ),
       ];
     }
@@ -63,12 +64,12 @@ class PastedConversation {
       if (match != null) {
         final body = match.namedGroup('body')!.trim();
         if (body.isEmpty) continue;
+        final sender = match.namedGroup('sender')!.trim();
         out.add(
           ExtractedMessage(
-            speaker: isMe(match.namedGroup('sender')!)
-                ? Speaker.me
-                : Speaker.them,
+            speaker: isMe(sender) ? Speaker.me : Speaker.them,
             text: body,
+            author: isMe(sender) ? null : sender,
           ),
         );
       } else if (anyNamed && out.isNotEmpty) {

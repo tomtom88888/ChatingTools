@@ -29,6 +29,23 @@ class ChatExportReader {
 
   /// Reads export text from [bytes]. [filename] is only a hint; the ZIP magic
   /// number wins, because share-sheet intents often lose the extension.
+  /// The chat's name from an export's filename, which WhatsApp builds from
+  /// it: "WhatsApp Chat with Family.txt" (Android), "WhatsApp Chat - Family
+  /// .zip" (iOS). `null` when the name carries none, as the "_chat.txt"
+  /// inside an iOS zip does.
+  static String? chatNameFromFilename(String filename) {
+    var name = filename.split(RegExp(r'[/\\]')).last;
+    name = name.replaceFirst(RegExp(r'\.(txt|zip)$', caseSensitive: false), '');
+    // A copy the phone renamed: "… (1)".
+    name = name.replaceFirst(RegExp(r'\s*\(\d+\)$'), '');
+    final match = RegExp(
+      r'^WhatsApp\s+Chat\s*(?:with|-|–|—)\s*(.+)$',
+      caseSensitive: false,
+    ).firstMatch(name.trim());
+    final result = match?.group(1)?.trim();
+    return result == null || result.isEmpty ? null : result;
+  }
+
   static String read(List<int> bytes, {String? filename}) {
     if (bytes.isEmpty) {
       throw const ChatExportException('That file is empty.');

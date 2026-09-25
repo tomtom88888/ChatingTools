@@ -148,6 +148,16 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     return _defaultReplyingTo(enabled);
   }
 
+  /// A group chat: a chat learned as one, or several different people named
+  /// on the other side of what was read.
+  bool _isGroup(ChatMemory? chat) =>
+      (chat?.isGroup ?? false) ||
+      {
+            for (final m in _messages)
+              if (m.speaker == Speaker.them && m.author != null) m.author,
+          }.length >
+          1;
+
   /// Settings with the names of the chat being replied in.
   AppSettings _named(AppSettings settings, ChatMemory? chat) {
     final me = chat?.myName ?? settings.myName;
@@ -320,6 +330,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         note: _note,
         profile: profile,
         voiceSample: voiceSample,
+        group: _isGroup(chat),
       );
       if (mounted) {
         setState(() {
@@ -358,6 +369,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         note: _note,
         profile: _profile,
         voiceSample: _voiceSample,
+        group: _isGroup(_currentReplyingTo(_enabledChats())),
       );
       if (!mounted) return;
       setState(() {

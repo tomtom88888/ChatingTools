@@ -402,15 +402,32 @@ class _ChatRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    chat.theirName.isEmpty ? 'Unnamed chat' : chat.theirName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.strong(
-                      size: 15,
-                      height: 1.3,
-                      color: chat.enabled ? Paper.ink : Paper.tertiary,
-                    ),
+                  Row(
+                    children: [
+                      if (chat.isGroup) ...[
+                        Icon(
+                          Icons.groups_rounded,
+                          size: 17,
+                          color: chat.enabled ? Paper.accent : Paper.tertiary,
+                          semanticLabel: 'Group',
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Flexible(
+                        child: Text(
+                          chat.theirName.isEmpty
+                              ? 'Unnamed chat'
+                              : chat.theirName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Type.strong(
+                            size: 15,
+                            height: 1.3,
+                            color: chat.enabled ? Paper.ink : Paper.tertiary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
