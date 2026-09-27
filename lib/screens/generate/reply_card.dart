@@ -118,64 +118,94 @@ class ReplyCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
+          LayoutBuilder(
+            builder: (context, box) {
               // The quick tweaks wrap onto a second line when the copy button
-              // leaves too little room, so no chip is ever cut off.
-              Expanded(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final refinement in Refinement.values)
-                      _Chip(
-                        label: refinement.label,
-                        busy: refining == refinement,
-                        onTap: busy ? null : () => onRefine(refinement),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              _StarButton(saved: saved, saving: saving, onTap: onSave),
-              const SizedBox(width: 8),
-              Material(
-                color: allCopied ? Paper.green : Paper.accent,
-                borderRadius: Corner.all(Corner.pill),
-                child: InkWell(
-                  onTap: busy ? null : onCopy,
-                  borderRadius: Corner.all(Corner.pill),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 9, 15, 9),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          allCopied
-                              ? Icons.done_all_rounded
-                              : Icons.content_copy_rounded,
-                          size: 15,
-                          color: _onAccent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          copyLabel,
-                          style: Type.strong(size: 13, color: _onAccent),
-                        ),
-                      ],
+              // leaves too little room, so no chip is ever cut off. On a narrow
+              // screen or with large text they get a line of their own.
+              final chips = Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final refinement in Refinement.values)
+                    _Chip(
+                      label: refinement.label,
+                      busy: refining == refinement,
+                      onTap: busy ? null : () => onRefine(refinement),
                     ),
+                ],
+              );
+              final actions = Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _StarButton(saved: saved, saving: saving, onTap: onSave),
+                  const SizedBox(width: 8),
+                  _CopyButton(
+                    label: copyLabel,
+                    allCopied: allCopied,
+                    onTap: busy ? null : onCopy,
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+              final scale = MediaQuery.textScalerOf(context).scale(1);
+              if (box.maxWidth < 340 * scale) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    chips,
+                    const SizedBox(height: 8),
+                    Align(alignment: Alignment.centerRight, child: actions),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: chips),
+                  const SizedBox(width: 8),
+                  actions,
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
+}
+
+class _CopyButton extends StatelessWidget {
+  const _CopyButton({required this.label, required this.allCopied, this.onTap});
+
+  final String label;
+  final bool allCopied;
+  final VoidCallback? onTap;
 
   static Color get _onAccent => Paper.isDark ? Paper.onInk : Colors.white;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: allCopied ? Paper.green : Paper.accent,
+    borderRadius: Corner.all(Corner.pill),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: Corner.all(Corner.pill),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 9, 15, 9),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              allCopied ? Icons.done_all_rounded : Icons.content_copy_rounded,
+              size: 15,
+              color: _onAccent,
+            ),
+            const SizedBox(width: 6),
+            Text(label, style: Type.strong(size: 13, color: _onAccent)),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// One outgoing bubble. The first of a run has the tail; a copied bubble
@@ -283,13 +313,19 @@ class _Chip extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
-          Text(
-            label,
-            style: Type.prose(
-              size: 12,
-              color: onTap == null && !busy ? Paper.placeholder : Paper.accent,
-              height: 1.2,
-              weight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Type.prose(
+                size: 12,
+                color: onTap == null && !busy
+                    ? Paper.placeholder
+                    : Paper.accent,
+                height: 1.2,
+                weight: FontWeight.w600,
+              ),
             ),
           ),
         ],
