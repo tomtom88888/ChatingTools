@@ -121,23 +121,20 @@ class ReplyCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // One line of quick tweaks, scrolling if the screen is narrow.
+              // The quick tweaks wrap onto a second line when the copy button
+              // leaves too little room, so no chip is ever cut off.
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final refinement in Refinement.values) ...[
-                        if (refinement != Refinement.values.first)
-                          const SizedBox(width: 6),
-                        _Chip(
-                          label: refinement.label,
-                          busy: refining == refinement,
-                          onTap: busy ? null : () => onRefine(refinement),
-                        ),
-                      ],
-                    ],
-                  ),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final refinement in Refinement.values)
+                      _Chip(
+                        label: refinement.label,
+                        busy: refining == refinement,
+                        onTap: busy ? null : () => onRefine(refinement),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
