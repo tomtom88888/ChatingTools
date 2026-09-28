@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:replylikeme/services/chat_export_reader.dart';
 
 void main() {
-  final androidExport = File('test/fixtures/android_export.txt')
-      .readAsStringSync();
+  final androidExport = File(
+    'test/fixtures/android_export.txt',
+  ).readAsStringSync();
 
   List<int> zipWith(Map<String, String> entries) {
     final archive = Archive();

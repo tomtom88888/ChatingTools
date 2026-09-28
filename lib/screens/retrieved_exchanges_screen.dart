@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/stored_exchange.dart';
+import '../services/retrieval.dart';
 import '../theme/tokens.dart';
 import '../widgets/paper_ui.dart';
 
@@ -21,12 +22,17 @@ class RetrievedExchangesScreen extends StatelessWidget {
     required this.examples,
     required this.myName,
     required this.theirName,
+    this.chatNames = const {},
     super.key,
   });
 
   final List<ScoredExchange> examples;
   final String myName;
   final String theirName;
+
+  /// Chat id to the name shown for it, so each example says where it came
+  /// from.
+  final Map<int, String> chatNames;
 
   @override
   Widget build(BuildContext context) {
@@ -59,12 +65,15 @@ class RetrievedExchangesScreen extends StatelessWidget {
         const SizedBox(height: 9),
         Text(
           examples.isEmpty
-              ? 'Similarity search came back empty, so the replies you were '
-                    'offered are a general model guessing rather than your own '
-                    'voice. Training on a longer export usually fixes it.'
+              ? 'Nothing matched closely enough to use — a match needs a '
+                    'score of at least $_floor — so the replies lean on your '
+                    'habits and everyday messages instead. Another screenshot '
+                    'of the conversation, or a longer export, usually helps.'
               : 'Closest first. These are your real messages, read off this '
                     'phone — the model saw exactly this and copied from it. '
-                    'Your reply is the one in colour.',
+                    'Your reply is the one in colour. The number is how close '
+                    'each is to this conversation; below $_floor, or far '
+                    'behind the best, an exchange is not used.',
           style: Type.prose(size: 14),
         ),
         if (examples.isNotEmpty) ...[
@@ -75,6 +84,7 @@ class RetrievedExchangesScreen extends StatelessWidget {
               scored: examples[i],
               myName: myName,
               first: i == 0,
+              chat: chatNames[examples[i].exchange.chatId],
             ),
           const SizedBox(height: 20),
           const Footnote(
@@ -85,6 +95,10 @@ class RetrievedExchangesScreen extends StatelessWidget {
       ],
     );
   }
+
+  static final String _floor = Retrieval.defaultMinSimilarity.toStringAsFixed(
+    2,
+  );
 }
 
 /// One retrieved conversation: a quiet header line, then the turns.
@@ -94,12 +108,16 @@ class _Exchange extends StatelessWidget {
     required this.scored,
     required this.myName,
     required this.first,
+    this.chat,
   });
 
   final int rank;
   final ScoredExchange scored;
   final String myName;
   final bool first;
+
+  /// The chat it came from, when known.
+  final String? chat;
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +143,10 @@ class _Exchange extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  when == null ? 'date unknown' : _when(when),
+                  '${when == null ? 'date unknown' : _when(when)}'
+                  '${chat == null ? '' : ' · $chat'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Type.numeric(
                     size: 12,
                     color: Paper.muted,

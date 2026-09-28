@@ -176,7 +176,9 @@ class EmptyState extends StatelessWidget {
             Text(
               'A straight screenshot of the conversation works best — not '
               'a crop, and not a photo of a screen. It reads who said what off '
-              'which side the bubbles sit on.',
+              'which side the bubbles sit on. For a longer conversation, pick '
+              'a few screenshots taken while scrolling up: they are joined '
+              'into one.',
               style: Type.prose(size: 14.5),
             ),
           ],
@@ -184,7 +186,7 @@ class EmptyState extends StatelessWidget {
       ),
       const SizedBox(height: 16),
       PaperAction(
-        title: 'Pick a screenshot',
+        title: 'Pick screenshots',
         centred: true,
         tone: ActionTone.accent,
         onTap: onPick,
@@ -205,7 +207,10 @@ class EmptyState extends StatelessWidget {
 }
 
 class ReadingState extends StatelessWidget {
-  const ReadingState({super.key});
+  const ReadingState({this.count = 1, super.key});
+
+  /// How many screenshots are being read at once.
+  final int count;
 
   @override
   Widget build(BuildContext context) => PaperPanel(
@@ -213,7 +218,10 @@ class ReadingState extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const MonoLabel('Reading the screenshot', spacing: 0.12),
+        MonoLabel(
+          count == 1 ? 'Reading the screenshot' : 'Reading $count screenshots',
+          spacing: 0.12,
+        ),
         const SizedBox(height: 10),
         ClipRRect(
           borderRadius: Corner.all(Corner.pill),
@@ -221,7 +229,10 @@ class ReadingState extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          'Working out who said what, oldest first.',
+          count == 1
+              ? 'Working out who said what, oldest first.'
+              : 'Working out who said what, then joining them up where they '
+                    'overlap.',
           style: Type.prose(size: 13, color: Paper.body, height: 1.45),
         ),
       ],
@@ -351,8 +362,10 @@ class Provenance extends StatelessWidget {
         ],
         if (none)
           const Notice(
-            'No past exchange resembled this one. These are a general '
-            "model's guesses, not your voice.",
+            'No past exchange was a close enough match, so none were used '
+            'rather than copying unrelated ones. These lean on your habits '
+            'and everyday messages instead. Adding another screenshot, or '
+            'ticking the chat with this person, usually helps.',
             tone: NoticeTone.caution,
             title: 'Nothing similar in your memory',
           )

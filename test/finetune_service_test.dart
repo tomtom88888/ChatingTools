@@ -230,8 +230,9 @@ void main() {
           return ok(const {});
         });
         await expectLater(
-          FineTuneService(openai: service)
-              .start(jsonl: jsonlWith(3), baseModel: 'gpt-4o-mini-2024-07-18'),
+          FineTuneService(
+            openai: service,
+          ).start(jsonl: jsonlWith(3), baseModel: 'gpt-4o-mini-2024-07-18'),
           throwsA(
             isA<OpenAiException>().having(
               (e) => e.message,
@@ -295,8 +296,9 @@ void main() {
       });
 
       await expectLater(
-        FineTuneService(openai: service)
-            .start(jsonl: jsonlWith(12), baseModel: 'gpt-4o-mini-2024-07-18'),
+        FineTuneService(
+          openai: service,
+        ).start(jsonl: jsonlWith(12), baseModel: 'gpt-4o-mini-2024-07-18'),
         throwsA(
           isA<OpenAiException>()
               .having((e) => e.kind, 'kind', OpenAiErrorKind.notAvailable)
@@ -334,9 +336,9 @@ void main() {
         }),
       );
 
-      final seen = await FineTuneService(openai: service)
-          .watch('ftjob-1', interval: Duration.zero)
-          .toList();
+      final seen = await FineTuneService(
+        openai: service,
+      ).watch('ftjob-1', interval: Duration.zero).toList();
 
       expect(seen.map((j) => j.status), [
         FineTuneStatus.queued,
@@ -365,9 +367,9 @@ void main() {
         ),
       );
 
-      final seen = await FineTuneService(openai: service)
-          .watch('ftjob-1', interval: Duration.zero)
-          .toList();
+      final seen = await FineTuneService(
+        openai: service,
+      ).watch('ftjob-1', interval: Duration.zero).toList();
       expect(seen, hasLength(1));
       expect(seen.single.status, FineTuneStatus.failed);
       expect(seen.single.error, 'training file was invalid');

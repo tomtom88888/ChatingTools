@@ -15,9 +15,7 @@ ScoredExchange scored({
   similarity: similarity,
   exchange: StoredExchange(
     id: 1,
-    context: [
-      ChatTurn(sender: 'Priya', text: theirLine, messageCount: 1),
-    ],
+    context: [ChatTurn(sender: 'Priya', text: theirLine, messageCount: 1)],
     contextText: 'Priya: $theirLine',
     replyText: myReply,
     vector: Float32List(2),
@@ -75,13 +73,39 @@ void main() {
     );
   });
 
+  testWidgets('says which chat each exchange came from', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RetrievedExchangesScreen(
+          examples: [
+            ScoredExchange(
+              similarity: 0.8,
+              exchange: StoredExchange(
+                id: 1,
+                chatId: 7,
+                context: const [],
+                contextText: '',
+                replyText: 'yes',
+                vector: Float32List(2),
+                timestamp: DateTime(2026, 2, 12),
+              ),
+            ),
+          ],
+          myName: 'Sam',
+          theirName: 'Priya',
+          chatNames: const {7: 'Mum'},
+        ),
+      ),
+    );
+    expect(find.text('12 Feb 2026 · Mum'), findsOneWidget);
+  });
+
   testWidgets('says so plainly when retrieval found nothing', (tester) async {
     await pump(tester, const []);
 
     expect(find.text('Nothing in your memory matched.'), findsOneWidget);
     expect(
-      find.textContaining('a general model guessing rather than your own '
-          'voice'),
+      find.textContaining('Nothing matched closely enough to use'),
       findsOneWidget,
     );
   });

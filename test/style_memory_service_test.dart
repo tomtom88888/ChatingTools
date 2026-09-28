@@ -209,9 +209,51 @@ void main() {
         limit: 2,
       )).examples;
 
-      expect(hits.first.exchange.replyText, 'go on then');
-      expect(hits.first.similarity, closeTo(1.0, 1e-6));
-      expect(hits.last.exchange.replyText, 'nah');
+      expect(hits.single.exchange.replyText, 'go on then');
+      expect(hits.single.similarity, closeTo(1.0, 1e-6));
+      // "cinema?" has nothing in common with "pub later", so it is left out
+      // rather than used to make up the number.
+    });
+
+    test('searches with the last turns only, leaning to one chat', () async {
+      final store = FakeStore();
+      final embedded = <String>[];
+      final service = StyleMemoryService(
+        openai: embedderThat((input) {
+          embedded.add(input);
+          return input.contains('pub') ? [1, 0] : [0, 1];
+        }),
+        store: store,
+      );
+      for (final them in ['Sam', 'Alex']) {
+        await service.build(
+          exchanges: [exchange('pub tonight?', 'go on then, $them')],
+          myName: 'Robin',
+          theirName: them,
+          embeddingModel: 'text-embedding-3-small',
+          dimensions: 2,
+        );
+      }
+      final alex = (await store.chats()).firstWhere(
+        (c) => c.theirName == 'Alex',
+      );
+      embedded.clear();
+
+      final hits = (await service.retrieve(
+        context: [
+          turn('Sam', 'cinema first?'),
+          turn('Robin', 'maybe'),
+          turn('Sam', 'pub later'),
+        ],
+        embeddingModel: 'text-embedding-3-small',
+        dimensions: 2,
+        limit: 1,
+        queryTurns: 1,
+        preferChatId: alex.id,
+      )).examples;
+
+      expect(embedded.single, 'Sam: pub later');
+      expect(hits.single.exchange.replyText, 'go on then, Alex');
     });
 
     test('returns nothing, without calling out, on an empty memory', () async {

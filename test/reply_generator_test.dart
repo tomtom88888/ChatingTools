@@ -191,6 +191,31 @@ void main() {
         '(you) m19',
         'last',
       ]);
+      // The rest is background in the system prompt, not dropped.
+      final background = system(m);
+      expect(background, contains('Earlier in this same conversation'));
+      expect(background, contains('m0\n(you) m1\nm2'));
+      expect(background, contains('(you) m17'));
+      expect(background, isNot(contains('m18')));
+    });
+
+    test('a short chat has no earlier background', () {
+      expect(system(build()), isNot(contains('Earlier in this same')));
+    });
+
+    test('long background keeps its newest lines', () {
+      final m = ReplyGenerator.buildMessages(
+        conversation: [
+          for (var i = 0; i < 400; i++) turn('Sam', 'message number $i'),
+          turn('Sam', 'last'),
+        ],
+        examples: const [],
+        settings: settings.copyWith(contextTurns: 1),
+      );
+      final text = system(m);
+      expect(text, contains('message number 399'));
+      expect(text, isNot(contains('message number 0\n')));
+      expect(text, contains('…'));
     });
 
     test('tells the model it is you, not an assistant', () {

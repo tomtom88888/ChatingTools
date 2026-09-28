@@ -19,17 +19,39 @@ import 'vector_math.dart';
 /// Relevance gets a small boost for recent exchanges, fading by half every
 /// [recencyHalfLife], so the examples lean towards how you text now rather
 /// than how you texted years ago. The boost is small enough that a clearly
-/// better old match still wins.
+/// better old match still wins. Exchanges from the chat being replied in get
+/// a similar nudge, [preferredChatBoost].
+///
+/// Weak matches are dropped rather than used to fill the quota: anything
+/// under [minSimilarity], or further than [maxGapFromBest] below the best
+/// match. A handful of close examples teaches the model more than a full set
+/// padded with unrelated ones, which it would dutifully imitate.
 class Retrieval {
   const Retrieval({
-    this.relevanceWeight = 0.75,
+    this.relevanceWeight = 0.8,
     this.recencyBoost = 0.03,
     this.recencyHalfLife = const Duration(days: 365),
     this.shortlistFactor = 4,
+    this.minSimilarity = defaultMinSimilarity,
+    this.maxGapFromBest = 0.2,
+    this.preferredChatBoost = 0.04,
   });
+
+  /// Below this, two conversations have little more in common than being
+  /// text messages.
+  static const double defaultMinSimilarity = 0.3;
 
   /// 1.0 is plain similarity ranking; lower values favour variety.
   final double relevanceWeight;
+
+  /// The least similarity an exchange needs to be used at all.
+  final double minSimilarity;
+
+  /// How far below the best match an exchange may be and still be used.
+  final double maxGapFromBest;
+
+  /// Added to the relevance of exchanges from the preferred chat.
+  final double preferredChatBoost;
 
   /// The most recency can add to a similarity score.
   final double recencyBoost;
@@ -39,8 +61,9 @@ class Retrieval {
   /// How many candidates per wanted example go through to the second stage.
   final int shortlistFactor;
 
-  /// The [limit] best exchanges from [candidates] for [query], most similar
-  /// first.
+  /// Up to [limit] of the best exchanges from [candidates] for [query], most
+  /// similar first; fewer, or none, when the rest are weak matches.
+  /// Exchanges from [preferChatId] rank a little higher.
   ///
   /// Throws [ArgumentError] if a candidate's vector has a different length to
   /// the query: that chat was built with another embedding model.
@@ -49,14 +72,22 @@ class Retrieval {
     List<StoredExchange> candidates, {
     required int limit,
     DateTime? now,
+    int? preferChatId,
   }) {
     if (limit < 1 || candidates.isEmpty) return const [];
     final vectors = [for (final c in candidates) c.vector];
-    final shortlist = VectorMath.topKScored(
+    final ranked = VectorMath.topKScored(
       query,
       vectors,
       math.max(limit, limit * shortlistFactor),
     );
+    if (ranked.isEmpty) return const [];
+    final best = ranked.map((s) => s.score).reduce(math.max);
+    final floor = math.max(minSimilarity, best - maxGapFromBest);
+    final shortlist = [
+      for (final s in ranked)
+        if (s.score >= floor) s,
+    ];
     if (shortlist.length <= 1) {
       return [
         for (final s in shortlist)
@@ -67,7 +98,11 @@ class Retrieval {
     final at = now ?? DateTime.now();
     final relevance = [
       for (final s in shortlist)
-        s.score + _recency(candidates[s.index].timestamp, at),
+        s.score +
+            _recency(candidates[s.index].timestamp, at) +
+            (preferChatId != null && candidates[s.index].chatId == preferChatId
+                ? preferredChatBoost
+                : 0),
     ];
 
     final chosen = <int>[]; // positions in shortlist

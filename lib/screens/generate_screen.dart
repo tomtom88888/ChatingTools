@@ -16,6 +16,7 @@ import '../models/suggestion_feedback.dart';
 import '../services/exchange_store.dart';
 import '../services/pasted_conversation.dart';
 import '../services/reply_generator.dart';
+import '../services/screenshot_stitcher.dart';
 import '../services/share_intake.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
@@ -31,10 +32,14 @@ import 'retrieved_exchanges_screen.dart';
 /// Pick a screenshot (or paste the chat), check what was read, take one of
 /// the suggested replies.
 class GenerateScreen extends ConsumerStatefulWidget {
-  const GenerateScreen({this.sharedScreenshot, super.key});
+  const GenerateScreen({this.sharedScreenshot, this.pickImages, super.key});
 
   /// Set when a screenshot was shared into the app.
   final SharedScreenshot? sharedScreenshot;
+
+  /// Picks up to `limit` screenshots from the gallery. Replaced in tests; the
+  /// app uses the system picker.
+  final Future<List<XFile>> Function(int limit)? pickImages;
 
   @override
   ConsumerState<GenerateScreen> createState() => _GenerateScreenState();
@@ -44,7 +49,12 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   /// Read up front: feedback is recorded from dispose, when `ref` is gone.
   late final ExchangeStore _store;
 
-  Uint8List? _screenshot;
+  /// How many screenshots the conversation was read from; 0 when pasted or
+  /// not yet picked.
+  int _screenshots = 0;
+
+  /// How many are being read right now.
+  int _readingCount = 0;
   bool _pasted = false;
   List<ExtractedMessage> _messages = [];
 
@@ -85,7 +95,10 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   /// run from dispose when providers can no longer be read.
   List<ChatMemory> _lastEnabled = const [];
 
-  bool get _hasSource => _screenshot != null || _pasted;
+  bool get _hasSource => _screenshots > 0 || _pasted;
+
+  /// Most screenshots one conversation is read from.
+  static const int maxScreenshots = 5;
 
   @override
   void initState() {
@@ -183,34 +196,66 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     _clearSetState();
   }
 
-  Future<void> _pickScreenshot() async {
+  /// Picks one or more screenshots. With [add], they join the conversation
+  /// already read (keeping any fixes made to it) instead of replacing it.
+  Future<void> _pickScreenshots({bool add = false}) async {
     setState(() => _error = null);
     try {
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        // Big enough for small text to stay legible, small enough to keep the
-        // vision call cheap.
-        maxWidth: 1400,
-        imageQuality: 90,
-      );
-      if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      await _useScreenshot(
-        bytes,
-        picked.mimeType ?? _guessMimeType(picked.name),
-      );
+      final room = add ? maxScreenshots - _screenshots : maxScreenshots;
+      if (room < 1) return;
+      final picked = await (widget.pickImages ?? _systemPicker)(room);
+      if (picked.isEmpty) return;
+      final images = [
+        for (final file in picked.take(room))
+          (
+            await file.readAsBytes(),
+            file.mimeType ?? _guessMimeType(file.name),
+          ),
+      ];
+      await _useScreenshots(images, add: add);
     } on Object catch (error) {
       if (mounted) setState(() => _error = error);
     }
   }
 
-  Future<void> _useScreenshot(Uint8List bytes, String mimeType) async {
+  static Future<List<XFile>> _systemPicker(int limit) async {
+    final picker = ImagePicker();
+    // Big enough for small text to stay legible, small enough to keep the
+    // vision call cheap.
+    if (limit == 1) {
+      final one = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1400,
+        imageQuality: 90,
+      );
+      return [?one];
+    }
+    return picker.pickMultiImage(
+      maxWidth: 1400,
+      imageQuality: 90,
+      limit: limit,
+    );
+  }
+
+  Future<void> _useScreenshot(Uint8List bytes, String mimeType) =>
+      _useScreenshots([(bytes, mimeType)]);
+
+  Future<void> _useScreenshots(
+    List<(Uint8List, String)> images, {
+    bool add = false,
+  }) async {
+    final keep = add ? List.of(_messages) : const <ExtractedMessage>[];
+    final before = add ? _screenshots : 0;
     setState(() {
-      _resetForNewSource();
-      _screenshot = bytes;
+      if (add) {
+        _retireVariants();
+      } else {
+        _resetForNewSource();
+      }
+      _screenshots = before + images.length;
       _pasted = false;
     });
-    await _extract(bytes, mimeType);
+    await _extract(images, keep: keep);
   }
 
   static String _guessMimeType(String name) =>
@@ -242,7 +287,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     if (!mounted) return;
     setState(() {
       _resetForNewSource();
-      _screenshot = null;
+      _screenshots = 0;
       _pasted = true;
       _messages = messages;
       _error = messages.isEmpty
@@ -252,24 +297,41 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     });
   }
 
-  Future<void> _extract(Uint8List bytes, String mimeType) async {
+  /// Reads every screenshot at once, then joins them with [keep] (what was
+  /// already read) into one conversation.
+  Future<void> _extract(
+    List<(Uint8List, String)> images, {
+    List<ExtractedMessage> keep = const [],
+  }) async {
     final openai = ref.read(openAiServiceProvider);
     if (openai == null) return;
     final settings = await ref.read(settingsProvider.future);
 
     setState(() {
       _reading = true;
+      _readingCount = images.length;
       _error = null;
     });
     try {
-      final messages = await openai.extractConversation(
-        imageBytes: bytes,
-        model: settings.visionModel,
-        imageMimeType: mimeType,
-      );
+      final parts = await Future.wait([
+        for (final (bytes, mimeType) in images)
+          openai.extractConversation(
+            imageBytes: bytes,
+            model: settings.visionModel,
+            imageMimeType: mimeType,
+          ),
+      ]);
+      final messages = ScreenshotStitcher.stitch([keep, ...parts]);
       if (mounted) setState(() => _messages = messages);
     } on Object catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted) {
+        setState(() {
+          _error = error;
+          // Nothing new was read: back to what there was.
+          _messages = keep;
+          _screenshots = keep.isEmpty ? 0 : _screenshots - images.length;
+        });
+      }
     } finally {
       if (mounted) setState(() => _reading = false);
     }
@@ -313,6 +375,8 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         dimensions: named.embeddingDimensions,
         limit: named.retrievedExampleCount,
         chatIds: {for (final c in enabled) c.id},
+        preferChatId: chat?.id,
+        queryTurns: named.contextTurns,
       );
       // The chat being replied in speaks loudest; with no chat, all the
       // ticked ones together.
@@ -574,7 +638,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
                   radius: Corner.choice,
                   onTap: () => setState(() {
                     _resetForNewSource();
-                    _screenshot = null;
+                    _screenshots = 0;
                     _pasted = false;
                   }),
                 ),
@@ -587,7 +651,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           onChangeSource: _hasSource
               ? () => setState(() {
                   _resetForNewSource();
-                  _screenshot = null;
+                  _screenshots = 0;
                   _pasted = false;
                 })
               : null,
@@ -602,9 +666,9 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
                 : () => setState(() => _fixing = true),
           ),
         if (!_hasSource)
-          EmptyState(onPick: _pickScreenshot, onPaste: _paste)
+          EmptyState(onPick: _pickScreenshots, onPaste: _paste)
         else if (_reading)
-          const ReadingState()
+          ReadingState(count: _readingCount)
         else if (_messages.isNotEmpty)
           Transcript(
             messages: _messages,
@@ -613,6 +677,20 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
             onToggleFixing: () => setState(() => _fixing = !_fixing),
             onToggleSide: _toggleSide,
             onEdit: _editText,
+          ),
+        if (_screenshots > 0 &&
+            _screenshots < maxScreenshots &&
+            _messages.isNotEmpty &&
+            !_reading &&
+            !_generating)
+          PaperAction(
+            key: const ValueKey('add-screenshot'),
+            title: 'Add another screenshot',
+            subtitle: _screenshots == 1
+                ? 'Scroll up in WhatsApp for more of the conversation'
+                : 'Read from $_screenshots so far · up to $maxScreenshots',
+            tone: ActionTone.outline,
+            onTap: () => _pickScreenshots(add: true),
           ),
         if (_messages.isNotEmpty && !_generating)
           NoteField(controller: _noteController, onCommit: _commitNote),
@@ -663,6 +741,10 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
                   examples: _examples,
                   myName: named.myName,
                   theirName: named.theirName,
+                  chatNames: {
+                    for (final c in enabled)
+                      c.id: c.theirName.isEmpty ? 'unnamed chat' : c.theirName,
+                  },
                 ),
               ),
             ),

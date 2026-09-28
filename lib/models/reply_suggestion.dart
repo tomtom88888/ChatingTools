@@ -14,10 +14,16 @@ enum SuggestionKind {
   /// models vary on spelling.
   static SuggestionKind parse(Object? raw) {
     if (raw is! String) return reply;
-    final normalised = raw.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]'), '');
+    final normalised = raw.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_-]'),
+      '',
+    );
     return switch (normalised) {
-      'newtopic' || 'topic' || 'topicchange' || 'change' || 'transition' =>
-        newTopic,
+      'newtopic' ||
+      'topic' ||
+      'topicchange' ||
+      'change' ||
+      'transition' => newTopic,
       _ => reply,
     };
   }

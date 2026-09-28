@@ -287,7 +287,7 @@ class StyleMemoryService {
               enabled: true,
               profile: profile.isEmpty ? base?.profile : profile,
               stats: stats.isEmpty ? base?.stats : stats,
-          isGroup: isGroup,
+              isGroup: isGroup,
             );
     return store.saveChat(
       chat,
@@ -297,13 +297,16 @@ class StyleMemoryService {
   }
 
   /// Up to [limit] past exchanges like the conversation so far, drawn from
-  /// [chatIds] (every switched-on chat when omitted).
+  /// [chatIds] (every switched-on chat when omitted), leaning towards
+  /// [preferChatId]. Only the last [queryTurns] turns are searched with.
   Future<RetrievedExamples> retrieve({
     required List<ChatTurn> context,
     required String embeddingModel,
     required int dimensions,
     required int limit,
     Set<int>? chatIds,
+    int? preferChatId,
+    int? queryTurns,
   }) async {
     final chats = await store.chats();
     final wanted = chats.where(
@@ -323,7 +326,13 @@ class StyleMemoryService {
       return RetrievedExamples(examples: const [], skipped: skipped);
     }
 
-    final queryText = _embedText(Exchange.renderContext(context));
+    // Search with the same window the stored exchanges were fingerprinted
+    // with, so like is compared with like; a longer conversation would blur
+    // the search across everything said in it.
+    final recent = queryTurns != null && context.length > queryTurns
+        ? context.sublist(context.length - queryTurns)
+        : context;
+    final queryText = _embedText(Exchange.renderContext(recent));
     if (queryText.trim().isEmpty) {
       return RetrievedExamples(examples: const [], skipped: skipped);
     }
@@ -339,7 +348,12 @@ class StyleMemoryService {
     );
     final Float32List query = _unit(vectors.first);
     return RetrievedExamples(
-      examples: retrieval.select(query, candidates, limit: limit),
+      examples: retrieval.select(
+        query,
+        candidates,
+        limit: limit,
+        preferChatId: preferChatId,
+      ),
       skipped: skipped,
     );
   }

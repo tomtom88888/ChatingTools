@@ -93,13 +93,62 @@ void main() {
 
     test('reports the raw similarity, best first', () {
       final rows = [
-        row(1, [0.6, 0.8, 0], 'x'),
+        row(1, [0.9, 0.4359, 0], 'x'),
         row(2, [1, 0, 0], 'y'),
       ];
       final picked = const Retrieval().select(query, rows, limit: 2);
       expect(picked.first.exchange.id, 2);
       expect(picked.first.similarity, closeTo(1, 1e-6));
-      expect(picked.last.similarity, closeTo(0.6, 1e-6));
+      expect(picked.last.similarity, closeTo(0.9, 1e-3));
+    });
+
+    test('leaves out weak matches instead of filling the quota', () {
+      final rows = [
+        row(1, [0.2, 0.98, 0], 'unrelated'),
+        row(2, [0.25, 0, 0.97], 'also unrelated'),
+      ];
+      expect(const Retrieval().select(query, rows, limit: 3), isEmpty);
+      expect(
+        const Retrieval(minSimilarity: 0.1).select(query, rows, limit: 3),
+        hasLength(2),
+      );
+    });
+
+    test('leaves out matches far behind the best one', () {
+      final rows = [
+        row(1, [1, 0, 0], 'close'),
+        row(2, [0.85, 0.527, 0], 'near enough'),
+        row(3, [0.6, 0.8, 0], 'far behind'),
+      ];
+      final picked = const Retrieval().select(query, rows, limit: 3);
+      expect(picked.map((e) => e.exchange.replyText), ['close', 'near enough']);
+    });
+
+    test('the chat being replied in wins a near tie', () {
+      StoredExchange from(int id, int chat, List<double> v) => StoredExchange(
+        id: id,
+        chatId: chat,
+        context: const [],
+        contextText: 'ctx $id',
+        replyText: 'reply $id',
+        vector: VectorMath.normalise(v),
+      );
+      final rows = [
+        from(1, 1, [1, 0.01, 0]),
+        from(2, 2, [1, 0.05, 0]),
+      ];
+      expect(
+        const Retrieval().select(query, rows, limit: 1).single.exchange.id,
+        1,
+      );
+      expect(
+        const Retrieval()
+            .select(query, rows, limit: 1, preferChatId: 2)
+            .single
+            .exchange
+            .id,
+        2,
+      );
     });
 
     test('a vector of another length is an error, not a silent miss', () {

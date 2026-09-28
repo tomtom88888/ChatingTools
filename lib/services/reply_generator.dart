@@ -252,6 +252,9 @@ class ReplyGenerator {
     String? extra,
   }) {
     final me = settings.myName;
+    final earlier = conversation.length > settings.contextTurns
+        ? conversation.sublist(0, conversation.length - settings.contextTurns)
+        : const <ChatTurn>[];
     return [
       {
         'role': 'system',
@@ -263,6 +266,7 @@ class ReplyGenerator {
           newTopic: newTopic,
           hasExamples: examples.isNotEmpty,
           group: group,
+          earlier: earlier,
           extra: extra,
         ),
       },
@@ -306,6 +310,23 @@ class ReplyGenerator {
       )
       .join('\n');
 
+  /// Most of the conversation before the live window that goes in the
+  /// prompt as background.
+  static const int maxBackgroundCharacters = 4000;
+
+  /// The earlier turns, newest kept when they run long.
+  static String _background(
+    List<ChatTurn> earlier, {
+    required String me,
+    required bool named,
+  }) {
+    final text = _theirSide(earlier, me: me, named: named);
+    if (text.length <= maxBackgroundCharacters) return text;
+    final cut = text.substring(text.length - maxBackgroundCharacters);
+    final line = cut.indexOf('\n');
+    return '…\n${line < 0 ? cut : cut.substring(line + 1)}';
+  }
+
   /// How many different people besides [me] speak in [turns].
   static int _othersIn(List<ChatTurn> turns, String me) => {
     for (final t in turns)
@@ -336,6 +357,7 @@ class ReplyGenerator {
     bool newTopic = false,
     bool hasExamples = true,
     bool group = false,
+    List<ChatTurn> earlier = const [],
     String? extra,
   }) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
@@ -373,6 +395,19 @@ class ReplyGenerator {
                 "history, chosen because they resemble this one — the last "
                 "pair is the closest." : ""}',
     );
+
+    if (earlier.isNotEmpty) {
+      final background = _background(
+        earlier,
+        me: settings.myName,
+        named: group,
+      );
+      section(
+        'Earlier in this same conversation, before the part in the last user '
+        'message (background only — what $me writes answers the latest '
+        'messages):\n$background',
+      );
+    }
 
     final habits = profile.describe(me);
     if (habits.isNotEmpty) {

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/reply_suggestion.dart';
@@ -33,11 +34,32 @@ void main() {
   late String clipboard;
   late List<Map<String, Object?>> chatBodies;
   late MemoryExchangeStore store;
+  late int visionCalls;
+
+  /// What each fake screenshot "shows", keyed by its bytes.
+  const screens = {
+    'top': [
+      {'sender': 'them', 'text': 'pub tonight?'},
+      {'sender': 'me', 'text': 'maybe'},
+      {'sender': 'them', 'text': 'go on'},
+    ],
+    'bottom': [
+      {'sender': 'them', 'text': 'go on'},
+      {'sender': 'me', 'text': 'fine, 8?'},
+      {'sender': 'them', 'text': 'see you there, bring cash'},
+    ],
+    'older': [
+      {'sender': 'them', 'text': 'good week?'},
+      {'sender': 'me', 'text': 'long one'},
+      {'sender': 'them', 'text': 'pub tonight?'},
+    ],
+  };
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     clipboard = 'Sam: pub later?\nme: maybe\nSam: go on';
     chatBodies = [];
+    visionCalls = 0;
     store = MemoryExchangeStore(
       chats: [
         ChatMemory(
@@ -90,6 +112,22 @@ void main() {
           ],
         });
       }
+      final last = (body['messages']! as List).last as Map;
+      if (last['content'] is List) {
+        visionCalls++;
+        final image = ((last['content'] as List)[1] as Map)['image_url'] as Map;
+        final url = image['url'] as String;
+        final name = utf8.decode(base64Decode(url.split(',').last));
+        return _json({
+          'choices': [
+            {
+              'message': {
+                'content': jsonEncode({'messages': screens[name]}),
+              },
+            },
+          ],
+        });
+      }
       chatBodies.add(body);
       final system =
           ((body['messages']! as List).first as Map)['content'] as String;
@@ -110,7 +148,10 @@ void main() {
     }),
   );
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    Future<List<XFile>> Function(int limit)? pickImages,
+  }) async {
     tester.view.physicalSize = const Size(1200, 7200);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -132,7 +173,7 @@ void main() {
           exchangeStoreProvider.overrideWithValue(store),
           openAiServiceProvider.overrideWithValue(openai),
         ],
-        child: const MaterialApp(home: GenerateScreen()),
+        child: MaterialApp(home: GenerateScreen(pickImages: pickImages)),
       ),
     );
     await tester.pumpAndSettle();
@@ -172,6 +213,72 @@ void main() {
 
     expect(find.text('Three ways you’d answer that'), findsOneWidget);
     expect(find.text('did you see the match'), findsOneWidget);
+  });
+
+  testWidgets('several screenshots are read together and joined up', (
+    tester,
+  ) async {
+    XFile shot(String name) => XFile.fromData(
+      Uint8List.fromList(utf8.encode(name)),
+      name: '$name.png',
+      mimeType: 'image/png',
+    );
+    final limits = <int>[];
+    var next = [shot('bottom'), shot('top')];
+    await pump(
+      tester,
+      pickImages: (limit) async {
+        limits.add(limit);
+        return next;
+      },
+    );
+
+    await tester.tap(find.text('Pick screenshots'));
+    await tester.pumpAndSettle();
+
+    expect(visionCalls, 2);
+    expect(limits, [5]);
+    expect(find.text('It read 5 messages'), findsOneWidget);
+    // Every message shows while fixing.
+    await tester.tap(find.text('Fix the reading'));
+    await tester.pumpAndSettle();
+    // Picked bottom first, but joined in order, with "go on" once.
+    final order = [
+      'pub tonight?',
+      'maybe',
+      'go on',
+      'fine, 8?',
+      'see you there, bring cash',
+    ];
+    for (final text in order) {
+      expect(find.text(text), findsOneWidget, reason: text);
+    }
+    double y(String text) => tester.getTopLeft(find.text(text)).dy;
+    for (var i = 1; i < order.length; i++) {
+      expect(y(order[i]), greaterThan(y(order[i - 1])));
+    }
+
+    // One more, from further up the chat: added on, room for three more.
+    next = [shot('older')];
+    await tester.tap(find.text('Add another screenshot'));
+    await tester.pumpAndSettle();
+    expect(limits, [5, 3]);
+    expect(visionCalls, 3);
+    expect(find.text('It read 7 messages'), findsOneWidget);
+    expect(find.text('pub tonight?'), findsOneWidget);
+    expect(y('good week?'), lessThan(y('pub tonight?')));
+    expect(find.text('Read from 3 so far · up to 5'), findsOneWidget);
+    await tester.tap(find.text('Done fixing'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Write 3 replies'));
+    await tester.pumpAndSettle();
+    final messages = chatBodies.first['messages']! as List;
+    expect(
+      (messages.last as Map)['content'],
+      'good week?\n(you) long one\npub tonight?\n(you) maybe\ngo on\n'
+      '(you) fine, 8?\nsee you there, bring cash',
+    );
   });
 
   testWidgets('a split reply is copied one bubble at a time', (tester) async {
