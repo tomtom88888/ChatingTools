@@ -8,6 +8,18 @@ import '../models/stored_exchange.dart';
 import 'openai_service.dart';
 import 'vector_math.dart';
 
+/// Where a set of exchanges comes from.
+enum ChatKind {
+  /// One-to-one chats only.
+  direct,
+
+  /// Group chats only.
+  group,
+
+  /// Some of each.
+  mixed,
+}
+
 /// One group of learned replies that sit close together in meaning, with the
 /// name the model gave it.
 class ChatGroup {
@@ -177,10 +189,14 @@ class ChatGrouper {
   ///
   /// Exchanges whose vectors are a different length from the majority (built
   /// with another fingerprint model) are left out.
+  ///
+  /// [groupChatIds] are the chats that are group chats; every other chat is
+  /// a one-to-one chat, and the model is told so.
   Future<List<ChatGroup>> group(
     List<StoredExchange> exchanges, {
     required int count,
     required String model,
+    Set<int> groupChatIds = const {},
   }) async {
     final usable = _sameLength(exchanges);
     if (usable.isEmpty) return const [];
@@ -193,7 +209,7 @@ class ChatGrouper {
         : KMeans.assign(vectors, k);
 
     final groups = arrange(usable, assignment);
-    return name(groups, model: model);
+    return name(groups, model: model, groupChatIds: groupChatIds);
   }
 
   /// Builds the groups from an assignment: members ordered most typical
@@ -239,13 +255,18 @@ class ChatGrouper {
   Future<List<ChatGroup>> name(
     List<ChatGroup> groups, {
     required String model,
+    Set<int> groupChatIds = const {},
   }) async {
     if (groups.isEmpty) return groups;
+    final kind = kindOf(groups, groupChatIds);
     final raw = await openai.chat(
       model: model,
       messages: [
-        {'role': 'system', 'content': namingSystemPrompt},
-        {'role': 'user', 'content': namingPrompt(groups)},
+        {'role': 'system', 'content': namingSystemPrompt(kind)},
+        {
+          'role': 'user',
+          'content': namingPrompt(groups, groupChatIds: groupChatIds),
+        },
       ],
       jsonMode: true,
       temperature: 0.4,
@@ -261,25 +282,74 @@ class ChatGrouper {
     ];
   }
 
-  static const String namingSystemPrompt =
-      'You name groups of text-message exchanges from one person\'s chats. '
-      'Each group was made by clustering, so its exchanges share a subject, '
-      'a mood or a kind of moment. For every group give a short, specific '
-      'name of two to four words, in the language of the messages, and one '
-      'plain sentence on what the group holds. Make the names distinct from '
-      'each other. Never quote private details such as addresses or numbers. '
-      'Answer only with JSON: {"groups": [{"group": 1, "name": "...", '
-      '"about": "..."}]}';
+  /// Whether the exchanges come from one-to-one chats, group chats, or both.
+  static ChatKind kindOf(List<ChatGroup> groups, Set<int> groupChatIds) {
+    var direct = false;
+    var group = false;
+    for (final g in groups) {
+      for (final e in g.members) {
+        if (groupChatIds.contains(e.chatId)) {
+          group = true;
+        } else {
+          direct = true;
+        }
+      }
+    }
+    return group && direct
+        ? ChatKind.mixed
+        : (group ? ChatKind.group : ChatKind.direct);
+  }
 
-  /// The samples, as numbered groups of "them → me" lines.
-  static String namingPrompt(List<ChatGroup> groups) {
+  /// The instructions. The clusters are called topics throughout, never
+  /// groups: in a chat app "group" reads as "group chat", and a model told
+  /// about "groups" of messages from a one-to-one chat will describe them as
+  /// a group chat.
+  static String namingSystemPrompt(ChatKind kind) {
+    final source = switch (kind) {
+      ChatKind.direct =>
+        'private one-to-one chats (DMs) between "me" and one other person. '
+            'None of them is a group chat: never describe anything as a '
+            'group, a group chat or "everyone", and speak of the other '
+            'person in the singular.',
+      ChatKind.group =>
+        'group chats. In each exchange "them" is whoever in the group spoke '
+            'just before "me".',
+      ChatKind.mixed =>
+        'a mix of private one-to-one chats (DMs) and group chats; each '
+            'exchange is marked [DM] or [group chat]. Only call something a '
+            'group chat when its exchanges are marked so.',
+    };
+    return 'You name the topics in one person\'s text-message history. The '
+        'exchanges come from $source\n\n'
+        'They have been clustered into numbered topics, so the exchanges in '
+        'a topic share a subject, a mood or a kind of moment. For every '
+        'topic give a short, specific name of two to four words, in the '
+        'language of the messages, and one plain sentence on what the topic '
+        'holds. Make the names distinct from each other. Never quote private '
+        'details such as addresses or numbers. Answer only with JSON: '
+        '{"topics": [{"topic": 1, "name": "...", "about": "..."}]}';
+  }
+
+  /// The samples, as numbered topics of "them → me" lines, each marked with
+  /// its kind of chat when both kinds are present.
+  static String namingPrompt(
+    List<ChatGroup> groups, {
+    Set<int> groupChatIds = const {},
+  }) {
+    final mixed = kindOf(groups, groupChatIds) == ChatKind.mixed;
     final out = StringBuffer();
     for (var i = 0; i < groups.length; i++) {
       final group = groups[i];
-      out.writeln('Group ${i + 1} (${group.size} exchanges):');
+      out.writeln('Topic ${i + 1} (${group.size} exchanges):');
       for (final e in group.members.take(samplesPerGroup)) {
         final said = e.context.isEmpty ? '' : e.context.last.text;
-        out.writeln('- them: "${_clip(said)}" → me: "${_clip(e.replyText)}"');
+        final mark = !mixed
+            ? ''
+            : (groupChatIds.contains(e.chatId) ? '[group chat] ' : '[DM] ');
+        out.writeln(
+          '- $mark'
+          'them: "${_clip(said)}" → me: "${_clip(e.replyText)}"',
+        );
       }
       out.writeln();
     }
@@ -298,12 +368,12 @@ class ChatGrouper {
     } on FormatException {
       return const {};
     }
-    final list = json is Map ? json['groups'] : json;
+    final list = json is Map ? (json['topics'] ?? json['groups']) : json;
     if (list is! List) return const {};
     final out = <int, (String, String)>{};
     for (final entry in list) {
       if (entry is! Map) continue;
-      final number = entry['group'];
+      final number = entry['topic'] ?? entry['group'];
       final name = entry['name'];
       if (number is! num || name is! String || name.trim().isEmpty) continue;
       final about = entry['about'];

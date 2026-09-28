@@ -56,6 +56,10 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
         exchanges,
         count: _count,
         model: settings.generationModel,
+        groupChatIds: {
+          for (final c in chats)
+            if (c.isGroup) c.id,
+        },
       );
       if (mounted) setState(() => _groups = groups);
     } on Object catch (error) {

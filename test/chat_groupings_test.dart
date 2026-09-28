@@ -127,7 +127,7 @@ void main() {
       expect(ChatGrouper.parseNames('{"groups": 3'), isEmpty);
     });
 
-    test('shows the model clipped samples, numbered by group', () {
+    test('shows the model clipped samples, numbered by topic', () {
       final groups = ChatGrouper.arrange(
         [
           exchange(near(0), said: 'pub?', reply: 'go on then'),
@@ -136,7 +136,8 @@ void main() {
         [0, 1],
       );
       final prompt = ChatGrouper.namingPrompt(groups);
-      expect(prompt, contains('Group 1 (1 exchanges):'));
+      expect(prompt, contains('Topic 1 (1 exchanges):'));
+      expect(prompt, isNot(contains('Group')));
       expect(prompt, contains('- them: "pub?" → me: "go on then"'));
       expect(prompt, isNot(contains('x' * 200)));
       expect(prompt, contains('…'));
@@ -147,7 +148,7 @@ void main() {
       final grouper = ChatGrouper(
         openai: fakeOpenAi(
           (_) =>
-              '{"groups": [{"group": 1, "name": "Pub", "about": "Drinks."}]}',
+              '{"topics": [{"topic": 1, "name": "Pub", "about": "Drinks."}]}',
           sent: sent,
         ),
       );
@@ -168,6 +169,59 @@ void main() {
       expect(sent, hasLength(1));
       expect(sent.single['model'], 'gpt-test');
       expect(sent.single['response_format'], {'type': 'json_object'});
+      final system =
+          ((sent.single['messages']! as List).first as Map)['content']
+              as String;
+      expect(system, contains('one-to-one chats (DMs)'));
+      expect(system, contains('None of them is a group chat'));
+    });
+
+    group('tells the model what kind of chat it is', () {
+      List<ChatGroup> groups() => ChatGrouper.arrange(
+        [
+          exchange(near(0), said: 'pub?', chatId: 1),
+          exchange(near(1), said: 'match?', chatId: 2),
+        ],
+        [0, 1],
+      );
+
+      test('one-to-one chats are DMs, never a group chat', () {
+        expect(ChatGrouper.kindOf(groups(), const {}), ChatKind.direct);
+        final system = ChatGrouper.namingSystemPrompt(ChatKind.direct);
+        expect(system, contains('private one-to-one chats (DMs)'));
+        expect(system, contains('never describe anything as a group'));
+        // The clusters are "topics", so the word cannot suggest a group chat.
+        expect(system, contains('numbered topics'));
+        expect(system, contains('{"topics": [{"topic": 1,'));
+      });
+
+      test('group chats are named as such', () {
+        expect(ChatGrouper.kindOf(groups(), {1, 2}), ChatKind.group);
+        final system = ChatGrouper.namingSystemPrompt(ChatKind.group);
+        expect(system, contains('group chats'));
+        expect(system, isNot(contains('DMs')));
+      });
+
+      test('a mix marks each sample with its kind', () {
+        expect(ChatGrouper.kindOf(groups(), {2}), ChatKind.mixed);
+        final prompt = ChatGrouper.namingPrompt(groups(), groupChatIds: {2});
+        expect(prompt, contains('- [DM] them: "pub?"'));
+        expect(prompt, contains('- [group chat] them: "match?"'));
+        expect(
+          ChatGrouper.namingPrompt(groups()),
+          isNot(contains('[DM]')),
+          reason: 'no marks when every chat is the same kind',
+        );
+      });
+
+      test('reads the "topics" answer shape', () {
+        expect(
+          ChatGrouper.parseNames(
+            '{"topics": [{"topic": 1, "name": "Pub", "about": ""}]}',
+          ),
+          {1: ('Pub', '')},
+        );
+      });
     });
   });
 
