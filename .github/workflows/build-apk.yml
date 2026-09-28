@@ -26,6 +26,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Keeps the Gradle download between runs, so a GitHub hiccup serving
+          # it doesn't fail the build.
+          cache: gradle
 
       - uses: subosito/flutter-action@v2
         with:
@@ -62,12 +65,13 @@ jobs:
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
 
-      # Artifacts need a logged-in browser to download. Running this workflow by
-      # hand ("Run workflow" in the Actions tab) also publishes the APK as a
-      # prerelease, which gives a plain download link. Ordinary pushes skip
-      # this, so they never create releases.
+      # Artifacts need a logged-in browser to download, so every push also
+      # publishes the APKs as a release with a plain download link: a full
+      # release from main, a prerelease from any other branch. A hand-started
+      # run ("Run workflow" in the Actions tab) asks which. Pull requests never
+      # publish.
       - name: Publish the APK as a release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -75,15 +79,27 @@ jobs:
           version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
           tag="v${version}-${GITHUB_SHA::7}"
           flags=()
-          if [ "${{ inputs.prerelease }}" != "false" ]; then flags+=(--prerelease); fi
-          mapfile -t apks < <(ls build/app/outputs/flutter-apk/*.apk)
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${apks[@]}" --clobber
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            prerelease="${{ inputs.prerelease }}"
+          elif [ "$GITHUB_REF" = refs/heads/main ]; then
+            prerelease=false
           else
+            prerelease=true
+          fi
+          if [ "$prerelease" != "false" ]; then flags+=(--prerelease); fi
+          mapfile -t apks < <(ls build/app/outputs/flutter-apk/*.apk)
+          # The same commit can be pushed to a branch and then to main; the
+          # release for it is reused, and promoted when main gets it.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" "${apks[@]}" \
               --target "$GITHUB_SHA" \
               --title "Ditto $version (${GITHUB_SHA::7})" \
               "${flags[@]}" \
-              --notes "APKs built from $GITHUB_SHA, signed with the repository's sideload key: for sideloading only, not for the Play Store. Most phones want app-arm64-v8a-release.apk; app-release.apk is the universal build."
+              --notes "APKs built from $GITHUB_SHA, signed with the repository's sideload key: for sideloading only, not for the Play Store. Most phones want app-arm64-v8a-release.apk; app-release.apk is the universal build." \
+              || true
+          fi
+          gh release upload "$tag" "${apks[@]}" --clobber
+          if [ "$prerelease" = "false" ]; then
+            gh release edit "$tag" --prerelease=false --latest
           fi
           echo "Release: $(gh release view "$tag" --json url --jq .url)"
