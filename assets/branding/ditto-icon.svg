@@ -43,10 +43,10 @@
     <path d="M214 452 C204 500 186 540 165 578 C160 588 168 596 178 592 C215 578 252 556 288 530 Z"/>
   </g>
   <g fill="#0B7563">
-    <rect x="344" y="312" width="42" height="84" rx="21" transform="rotate(-6 365 354)"/>
-    <rect x="495" y="270" width="42" height="84" rx="21" transform="rotate(-6 516 312)"/>
+    <rect x="344" y="294" width="42" height="72" rx="21" transform="rotate(-6 365 330)"/>
+    <rect x="495" y="254" width="42" height="72" rx="21" transform="rotate(-6 516 290)"/>
   </g>
-  <path d="M407 398 C436 420 480 416 506 386" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
+  <path d="M407 408 C436 430 480 426 506 396" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
 
   <!-- Mint bubble, tail bottom right -->
   <g filter="url(#lift)" fill="url(#bubbleMint)">
@@ -54,8 +54,8 @@
     <path d="M808 800 C814 842 828 876 846 904 C852 914 845 922 834 918 C790 904 750 888 712 870 Z"/>
   </g>
   <g fill="#0B7563">
-    <rect x="500" y="612" width="42" height="84" rx="21" transform="rotate(6 521 654)"/>
-    <rect x="646" y="654" width="42" height="84" rx="21" transform="rotate(6 667 696)"/>
+    <rect x="500" y="606" width="42" height="72" rx="21" transform="rotate(6 521 642)"/>
+    <rect x="646" y="642" width="42" height="72" rx="21" transform="rotate(6 667 678)"/>
   </g>
-  <path d="M538 728 C562 758 606 760 632 738" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
+  <path d="M538 738 C562 768 606 770 632 748" fill="none" stroke="#0B7563" stroke-width="28" stroke-linecap="round"/>
 </svg>
