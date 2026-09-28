@@ -170,6 +170,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         .read(chatsProvider.notifier)
                         .setEnabled(chat.id, enabled: on),
                     onDelete: _confirmDelete,
+                    onAdd: openTrain,
                   ),
                   if (stale.isNotEmpty)
                     Notice(
@@ -182,18 +183,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       tone: NoticeTone.caution,
                       title: 'Needs rebuilding',
                     ),
-                  _MemoryDetails(chats: enabled.isEmpty ? learned : enabled),
-                  PaperAction(
-                    title: 'Chat data',
-                    subtitle: 'Reply times, word counts, when you talk',
-                    tone: ActionTone.outline,
-                    onTap: () => _push(const ChatDataScreen()),
-                  ),
-                  PaperAction(
-                    title: 'Chat groupings',
-                    subtitle: 'What you talk about, grouped and named',
-                    tone: ActionTone.outline,
-                    onTap: () => _push(const ChatGroupingsScreen()),
+                  _Explore(
+                    onChatData: () => _push(const ChatDataScreen()),
+                    onGroupings: () => _push(const ChatGroupingsScreen()),
                   ),
                   if (settings.mode == TrainingMode.fineTune &&
                       !settings.hasFineTunedModel)
@@ -316,11 +308,13 @@ class _ChatList extends StatelessWidget {
     required this.chats,
     required this.onToggle,
     required this.onDelete,
+    required this.onAdd,
   });
 
   final List<ChatMemory> chats;
   final void Function(ChatMemory chat, bool enabled) onToggle;
   final ValueChanged<ChatMemory> onDelete;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -348,10 +342,10 @@ class _ChatList extends StatelessWidget {
             for (var i = 0; i < chats.length; i++)
               _ChatRow(
                 chat: chats[i],
-                last: i == chats.length - 1,
                 onToggle: (on) => onToggle(chats[i], on),
                 onDelete: () => onDelete(chats[i]),
               ),
+            _AddChatRow(onTap: onAdd),
           ],
         ),
       ),
@@ -368,13 +362,11 @@ class _ChatList extends StatelessWidget {
 class _ChatRow extends StatelessWidget {
   const _ChatRow({
     required this.chat,
-    required this.last,
     required this.onToggle,
     required this.onDelete,
   });
 
   final ChatMemory chat;
-  final bool last;
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
 
@@ -387,10 +379,9 @@ class _ChatRow extends StatelessWidget {
       borderRadius: Corner.all(Corner.small),
       child: Container(
         padding: const EdgeInsets.fromLTRB(2, 8, 0, 8),
+        // Every chat row has a divider under it: the add row follows.
         decoration: BoxDecoration(
-          border: last
-              ? null
-              : Border(bottom: BorderSide(color: Paper.divider)),
+          border: Border(bottom: BorderSide(color: Paper.divider)),
         ),
         child: Row(
           children: [
@@ -472,48 +463,152 @@ class _ChatRow extends StatelessWidget {
   }
 }
 
-class _MemoryDetails extends StatelessWidget {
-  const _MemoryDetails({required this.chats});
+/// The last row of the chat list: bringing in another chat, or a newer
+/// export of one already here.
+class _AddChatRow extends StatelessWidget {
+  const _AddChatRow({required this.onTap});
 
-  final List<ChatMemory> chats;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final newest = chats.reduce((a, b) => a.builtAt.isAfter(b.builtAt) ? a : b);
-    final me = chats
-        .map((c) => c.myName)
-        .firstWhere((n) => n.isNotEmpty, orElse: () => 'you');
-    final models = {
-      for (final c in chats) '${c.embeddingModel} · ${c.dimensions}',
-    };
-    return PaperCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Column(
-        // Without this the rows shrink to their content and centre themselves,
-        // taking the dividers with them; the design runs both full width.
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: Corner.all(Corner.small),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 13, 12, 13),
+      child: Row(
         children: [
-          StackedRow(
-            label: 'Learning from',
-            valueChild: NamePairValue(
-              me: me,
-              them: nameList([for (final c in chats) c.theirName]),
+          Icon(Icons.add_rounded, size: 22, color: Paper.accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add or refresh a chat',
+                  style: Type.strong(
+                    size: 14.5,
+                    height: 1.3,
+                    color: Paper.accent,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  'Import an export · only new replies are sent',
+                  style: Type.prose(size: 12, color: Paper.muted, height: 1.3),
+                ),
+              ],
             ),
-          ),
-          StackedRow(
-            label: 'Fingerprints',
-            value: models.join('\n'),
-            mono: true,
-          ),
-          StackedRow(
-            label: chats.length == 1 ? 'Built' : 'Last built',
-            value: dayMonthTime(newest.builtAt),
-            last: true,
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+/// The two ways to look at what has been learned, side by side.
+class _Explore extends StatelessWidget {
+  const _Explore({required this.onChatData, required this.onGroupings});
+
+  final VoidCallback onChatData;
+  final VoidCallback onGroupings;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const MonoLabel('Look closer'),
+      const SizedBox(height: 9),
+      // Equal heights, so the two tiles read as one row.
+      IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _Tile(
+                icon: Icons.insights_rounded,
+                title: 'Chat data',
+                subtitle: 'Reply times, word counts',
+                onTap: onChatData,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _Tile(
+                icon: Icons.bubble_chart_outlined,
+                title: 'Chat groupings',
+                subtitle: 'What you talk about',
+                onTap: onGroupings,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _Tile extends StatelessWidget {
+  const _Tile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    type: MaterialType.transparency,
+    child: Ink(
+      decoration: BoxDecoration(
+        color: Paper.card,
+        borderRadius: Corner.all(Corner.card),
+        boxShadow: Paper.liftCard,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: Corner.all(Corner.card),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: Paper.accentSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 19, color: Paper.accent),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Type.strong(size: 15, height: 1.3),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: Type.prose(
+                  size: 12.5,
+                  color: Paper.tertiary,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _FineTuneMismatch extends StatelessWidget {
@@ -706,15 +801,8 @@ class _Actions extends StatelessWidget {
       children: [
         // Trained: writing is the everyday act, so it leads. Untrained: there
         // is nothing to write from, so teaching leads.
-        if (trained) ...[
-          write,
-          const SizedBox(height: 11),
-          train,
-        ] else ...[
-          train,
-          const SizedBox(height: 11),
-          write,
-        ],
+        // Adding a chat lives in the chat list once there is one.
+        if (trained) write else ...[train, const SizedBox(height: 11), write],
         const SizedBox(height: 15),
         const Footnote('Your chat history never leaves this phone.'),
       ],

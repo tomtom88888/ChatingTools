@@ -14,7 +14,6 @@ import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/services/whatsapp_parser.dart';
 import 'package:replylikeme/state/providers.dart';
 import 'package:replylikeme/theme/tokens.dart';
-import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// In-memory style memory, so no database is touched.
@@ -140,25 +139,27 @@ void main() {
       store: trainedStore(),
     );
 
-    // The hero names who it knows and how much of you it read. 'Sam' appears
-    // three times: in the hero, in the chat list, and in the learning-from
-    // pair.
-    expect(find.text('Sam'), findsNWidgets(3));
+    // The hero names who it knows and how much of you it read; 'Sam' is in
+    // the hero and in the chat list.
+    expect(find.text('Sam'), findsNWidgets(2));
     expect(find.text('1'), findsOneWidget);
     expect(find.text('of your replies learned'), findsOneWidget);
-    // The two names are separate widgets, so their order is fixed by the
-    // widget list rather than by bidirectional text resolution.
-    final pair = tester.widget<NamePairValue>(find.byType(NamePairValue));
-    expect(pair.me, 'Robin');
-    expect(pair.them, 'Sam');
 
-    expect(find.textContaining('text-embedding-3-small'), findsOneWidget);
-
-    // Trained, writing leads and refreshing is the secondary action.
+    // Trained, writing is the one big button. Adding a chat is the last row
+    // of the chat list, and the two ways to look closer sit side by side.
     expect(find.text('Write a reply'), findsOneWidget);
     expect(find.text('From a screenshot or pasted chat'), findsOneWidget);
     expect(find.text('Add or refresh a chat'), findsOneWidget);
     expect(find.byIcon(Icons.lock_outline), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('Chat data')).dy,
+      tester.getTopLeft(find.text('Chat groupings')).dy,
+      reason: 'the two tiles share a row',
+    );
+
+    await tester.tap(find.text('Add or refresh a chat'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('export'), findsWidgets);
   });
 
   testWidgets('settings opens and shows the masked key and defaults', (

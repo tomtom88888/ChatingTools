@@ -521,50 +521,6 @@ class StackedRow extends StatelessWidget {
   );
 }
 
-/// Renders `<me> (me) -> <them>` as three separate pieces in a pinned
-/// left-to-right row.
-///
-/// Packed into one string this reorders when either name is written in a
-/// right-to-left script: the bidirectional algorithm resolves the neutral
-/// characters between two such names against them, and the pair swaps, so the
-/// app appears to have learned the wrong person. Separate widgets in a Row
-/// with an explicit direction cannot reorder \u2014 position is decided by the
-/// widget list, not by the text.
-class NamePairValue extends StatelessWidget {
-  const NamePairValue({required this.me, required this.them, super.key});
-
-  final String me;
-  final String them;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = Type.strong(size: 14, height: 1.35);
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text(me, style: style, textDirection: TextDirection.ltr),
-          Text(
-            ' (me) ',
-            style: style.copyWith(color: Paper.tertiary),
-            textDirection: TextDirection.ltr,
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Icon(
-              Icons.arrow_forward_rounded,
-              size: 15,
-              color: Paper.tertiary,
-            ),
-          ),
-          Text(them, style: style, textDirection: TextDirection.ltr),
-        ],
-      ),
-    );
-  }
-}
-
 /// A right-aligned figure against a left-aligned name.
 class FigureRow extends StatelessWidget {
   const FigureRow(this.label, this.value, {this.emphasis = false, super.key});
