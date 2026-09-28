@@ -65,16 +65,16 @@ jobs:
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
 
-      # Artifacts need a logged-in browser to download, so every push to main
+      # Artifacts need a logged-in browser to download, so every push to master
       # also publishes the APKs as a full release with a plain download link.
-      # Main only moves when a feature is finished, so that is one release per
+      # Master only moves when a feature is finished, so that is one release per
       # feature. Other branches and pull requests never publish; a hand-started
       # run ("Run workflow" in the Actions tab) does, and asks whether it is a
       # prerelease.
       - name: Publish the APK as a release
         if: >-
           github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+          (github.event_name == 'push' && github.ref == 'refs/heads/master')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
