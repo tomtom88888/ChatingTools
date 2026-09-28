@@ -14,6 +14,7 @@ import '../widgets/paper_dialog.dart';
 import '../widgets/paper_ui.dart';
 import 'generate_screen.dart';
 import 'chat_data_screen.dart';
+import 'chat_groupings_screen.dart';
 import 'settings_screen.dart';
 import 'train_screen.dart';
 
@@ -187,6 +188,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     subtitle: 'Reply times, word counts, when you talk',
                     tone: ActionTone.outline,
                     onTap: () => _push(const ChatDataScreen()),
+                  ),
+                  PaperAction(
+                    title: 'Chat groupings',
+                    subtitle: 'What you talk about, grouped and named',
+                    tone: ActionTone.outline,
+                    onTap: () => _push(const ChatGroupingsScreen()),
                   ),
                   if (settings.mode == TrainingMode.fineTune &&
                       !settings.hasFineTunedModel)

@@ -4,6 +4,7 @@ import '../models/api_usage.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../models/suggestion_feedback.dart';
+import '../services/chat_groupings.dart';
 import '../services/embeddings_store.dart';
 import '../services/exchange_store.dart';
 import '../services/finetune_service.dart';
@@ -113,6 +114,12 @@ final replyGeneratorProvider = Provider<ReplyGenerator?>((ref) {
   final openai = ref.watch(openAiServiceProvider);
   if (openai == null) return null;
   return ReplyGenerator(openai: openai);
+});
+
+final chatGrouperProvider = Provider<ChatGrouper?>((ref) {
+  final openai = ref.watch(openAiServiceProvider);
+  if (openai == null) return null;
+  return ChatGrouper(openai: openai);
 });
 
 final fineTuneServiceProvider = Provider<FineTuneService?>((ref) {
