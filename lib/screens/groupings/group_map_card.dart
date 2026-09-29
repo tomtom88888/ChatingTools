@@ -9,11 +9,10 @@ import '../../widgets/paper_ui.dart';
 /// The summary at the top of the groupings: every reply as a dot on a flat
 /// map, coloured by its group, with a legend of names, counts and shares.
 ///
-/// Eight colours are the most a scatter can keep apart, and even those are
-/// not all distinguishable to every eye, so colour never works alone: each
-/// group's centre carries its number, the legend repeats it, and tapping a
-/// dot or a name picks that group out and greys the rest. Groups past the
-/// eighth are grey with their number.
+/// Every group has its own colour, but past a handful no set of colours stays
+/// distinguishable to every eye, so colour never works alone: each group's
+/// centre carries its number, the legend repeats it, and tapping a dot or a
+/// name picks that group out and greys the rest.
 class GroupMapCard extends StatefulWidget {
   const GroupMapCard({required this.groups, required this.map, super.key});
 
@@ -21,7 +20,7 @@ class GroupMapCard extends StatefulWidget {
   final GroupMap map;
 
   /// The categorical order, light and dark: the first eight groups, biggest
-  /// first, take these in turn.
+  /// first, take these in turn; later ones get generated colours.
   static const List<Color> _light = [
     Color(0xFF2A78D6),
     Color(0xFFEB6834),
@@ -45,7 +44,20 @@ class GroupMapCard extends StatefulWidget {
 
   static Color colourOf(int group) {
     final palette = Paper.isDark ? _dark : _light;
-    return group < palette.length ? palette[group] : Paper.placeholder;
+    if (group < palette.length) return palette[group];
+    // Past the eighth, each next colour steps round the wheel by the golden
+    // angle, so it lands away from the ones before it, alternating lighter
+    // and deeper. These are not all easy to tell apart, which is why every
+    // group also carries its number.
+    final n = group - palette.length;
+    final hue = (25 + n * 137.508) % 360;
+    final deep = n.isEven;
+    return HSLColor.fromAHSL(
+      1,
+      hue,
+      deep ? 0.62 : 0.55,
+      Paper.isDark ? (deep ? 0.55 : 0.68) : (deep ? 0.40 : 0.55),
+    ).toColor();
   }
 
   @override
