@@ -1,3 +1,5 @@
+import 'ai_provider.dart';
+
 /// How replies are produced.
 enum TrainingMode {
   /// Mode A (default): retrieve similar past exchanges and prompt a base model
@@ -96,6 +98,55 @@ class AppSettings {
     'text-embedding-3-large',
   ];
 
+  // Claude, checked September 2026: Opus 5.5 is the most capable, Sonnet 5.5
+  // cheaper and faster, Haiku 4.5 the cheapest. Claude has no embeddings.
+  static const List<String> suggestedClaudeModels = [
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+    'claude-haiku-4-5',
+  ];
+
+  // Gemini, checked September 2026. gemini-embedding-001 can return
+  // shortened vectors, like text-embedding-3-*.
+  static const List<String> suggestedGeminiModels = [
+    'gemini-3.8-flash',
+    'gemini-3.5-flash-lite',
+  ];
+  static const List<String> suggestedGeminiEmbeddingModels = [
+    'gemini-embedding-001',
+    'gemini-embedding-2',
+  ];
+
+  /// The model that writes and reads screenshots when only [provider] has a
+  /// key.
+  static String defaultChatModelFor(AiProvider provider) => switch (provider) {
+    AiProvider.openai => defaultGenerationModel,
+    AiProvider.anthropic => suggestedClaudeModels.first,
+    AiProvider.gemini => suggestedGeminiModels.first,
+  };
+
+  /// The fingerprint model for [provider], or `null` for Claude, which has
+  /// none.
+  static String? defaultEmbeddingModelFor(AiProvider provider) =>
+      switch (provider) {
+        AiProvider.openai => defaultEmbeddingModel,
+        AiProvider.anthropic => null,
+        AiProvider.gemini => suggestedGeminiEmbeddingModels.first,
+      };
+
+  /// Suggested writing models for the providers with a key.
+  static List<String> chatModelsFor(ApiKeys keys) => [
+    if (keys.has(AiProvider.openai)) ...suggestedChatModels,
+    if (keys.has(AiProvider.anthropic)) ...suggestedClaudeModels,
+    if (keys.has(AiProvider.gemini)) ...suggestedGeminiModels,
+  ];
+
+  /// Suggested fingerprint models for the providers with a key.
+  static List<String> embeddingModelsFor(ApiKeys keys) => [
+    if (keys.has(AiProvider.openai)) ...suggestedEmbeddingModels,
+    if (keys.has(AiProvider.gemini)) ...suggestedGeminiEmbeddingModels,
+  ];
+
   final String visionModel;
   final String generationModel;
   final String embeddingModel;
@@ -157,6 +208,31 @@ class AppSettings {
       mode == TrainingMode.fineTune && hasFineTunedModel
       ? fineTunedModel!
       : generationModel;
+
+  /// These settings with every model moved to a provider that has a key,
+  /// for when a key is added or removed. A model whose provider has a key is
+  /// left alone, so a choice made in Settings sticks.
+  AppSettings fittedTo(ApiKeys keys) {
+    if (keys.isEmpty) return this;
+    String chat(String model) => keys.has(AiProvider.forModel(model))
+        ? model
+        : defaultChatModelFor(keys.providers.first);
+    var embedding = embeddingModel;
+    if (!keys.has(AiProvider.forModel(embedding))) {
+      for (final p in keys.providers) {
+        final model = defaultEmbeddingModelFor(p);
+        if (model != null) {
+          embedding = model;
+          break;
+        }
+      }
+    }
+    return copyWith(
+      visionModel: chat(visionModel),
+      generationModel: chat(generationModel),
+      embeddingModel: embedding,
+    );
+  }
 
   AppSettings copyWith({
     String? visionModel,

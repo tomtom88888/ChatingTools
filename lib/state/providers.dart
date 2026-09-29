@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/ai_provider.dart';
 import '../models/api_usage.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
@@ -18,6 +19,7 @@ import '../services/settings_store.dart';
 import '../services/style_memory_service.dart';
 import '../services/usage_store.dart';
 import 'app_activity.dart';
+import 'keep_awake.dart';
 
 // --------------------------------------------------------------------- storage
 
@@ -46,27 +48,41 @@ final exchangeStoreProvider = Provider<ExchangeStore>((ref) {
 
 // ------------------------------------------------------------------- API key
 
-/// The saved OpenAI key, or `null` if setup hasn't happened yet.
+/// The saved API keys: none until setup has happened.
 ///
-/// The value is held in memory only while the app runs; the only copy at rest
-/// is in the platform keystore.
-class ApiKeyNotifier extends AsyncNotifier<String?> {
+/// The values are held in memory only while the app runs; the only copy at
+/// rest is in the platform keystore.
+class ApiKeysNotifier extends AsyncNotifier<ApiKeys> {
   @override
-  Future<String?> build() => ref.read(secureKeyStoreProvider).read();
+  Future<ApiKeys> build() => ref.read(secureKeyStoreProvider).readAll();
 
-  Future<void> save(String key) async {
-    await ref.read(secureKeyStoreProvider).write(key);
-    state = AsyncValue.data(key.trim());
+  /// Saves [key] for [provider], and moves any model whose provider has no
+  /// key over to one that does.
+  Future<void> save(AiProvider provider, String key) async {
+    await ref.read(secureKeyStoreProvider).write(provider, key);
+    final current = state.value ?? await future;
+    await _publish(current.withKey(provider, key));
+  }
+
+  Future<void> remove(AiProvider provider) async {
+    await ref.read(secureKeyStoreProvider).delete(provider);
+    final current = state.value ?? await future;
+    await _publish(current.without(provider));
   }
 
   Future<void> clear() async {
-    await ref.read(secureKeyStoreProvider).delete();
-    state = const AsyncValue.data(null);
+    await ref.read(secureKeyStoreProvider).deleteAll();
+    state = const AsyncValue.data(ApiKeys());
+  }
+
+  Future<void> _publish(ApiKeys keys) async {
+    state = AsyncValue.data(keys);
+    await ref.read(settingsProvider.notifier).edit((s) => s.fittedTo(keys));
   }
 }
 
-final apiKeyProvider = AsyncNotifierProvider<ApiKeyNotifier, String?>(
-  ApiKeyNotifier.new,
+final apiKeysProvider = AsyncNotifierProvider<ApiKeysNotifier, ApiKeys>(
+  ApiKeysNotifier.new,
 );
 
 // ------------------------------------------------------------------- settings
@@ -96,19 +112,22 @@ final settingsProvider = AsyncNotifierProvider<SettingsNotifier, AppSettings>(
 
 // -------------------------------------------------------------------- services
 
-/// `null` until a key is saved, so screens can't accidentally call OpenAI
-/// without one.
+/// `null` until a key is saved, so screens can't accidentally call an AI
+/// without one. Talks to whichever providers have a key.
 final openAiServiceProvider = Provider<OpenAiService?>((ref) {
-  final key = ref.watch(apiKeyProvider).value;
-  if (key == null || key.isEmpty) return null;
-  final service = OpenAiService(
-    apiKey: key,
+  final keys = ref.watch(apiKeysProvider).value;
+  if (keys == null || keys.isEmpty) return null;
+  final service = OpenAiService.forKeys(
+    keys,
     // Looked up on every call rather than captured, so the tally keeps
     // counting after "delete all my data" rebuilds it.
     onUsage: (usage) => ref.read(usageProvider.notifier).record(usage),
-    // Survive the screen turning off or another app coming to the front.
+    // Survive the screen turning off or another app coming to the front:
+    // Android is asked to keep the app running while a request is out, and
+    // one the phone cuts off anyway waits for the app to come back.
     interruptions: () => AppActivity.instance.interruptions,
     whenActive: () => AppActivity.instance.whenActive(),
+    keepAlive: KeepAwake.instance.during,
   );
   ref.onDispose(service.close);
   return service;
@@ -229,8 +248,8 @@ final usageProvider = AsyncNotifierProvider<UsageNotifier, List<MonthlyUsage>>(
 
 /// Deletes everything this app stored on the device.
 ///
-/// The API key is handled separately, because "forget what you learned about
-/// me" and "forget my OpenAI credentials" are different requests.
+/// The API keys are handled separately, because "forget what you learned
+/// about me" and "forget my credentials" are different requests.
 class DataWiper {
   const DataWiper(this._ref);
 
@@ -242,12 +261,17 @@ class DataWiper {
     await _ref.read(usageStoreProvider).clear();
     await _ref.read(groupingsStoreProvider).clear();
     await _ref.read(factsStoreProvider).clear();
-    if (includeApiKey) await _ref.read(apiKeyProvider.notifier).clear();
+    if (includeApiKey) await _ref.read(apiKeysProvider.notifier).clear();
     _ref.invalidate(settingsProvider);
     _ref.invalidate(exchangeStoreProvider);
     _ref.invalidate(chatsProvider);
     _ref.invalidate(feedbackProvider);
     _ref.invalidate(usageProvider);
+    if (!includeApiKey) {
+      // The default models may belong to a provider without a key.
+      final keys = await _ref.read(apiKeysProvider.future);
+      await _ref.read(settingsProvider.notifier).edit((s) => s.fittedTo(keys));
+    }
   }
 }
 

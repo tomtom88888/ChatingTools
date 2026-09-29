@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:replylikeme/models/ai_provider.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/screens/home_screen.dart';
@@ -13,9 +14,12 @@ import 'package:replylikeme/widgets/paper_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
-class _Key extends ApiKeyNotifier {
+class _Key extends ApiKeysNotifier {
   @override
-  Future<String?> build() async => 'sk-test-0123456789abcdefghij';
+  Future<ApiKeys> build() async => const ApiKeys().withKey(
+    AiProvider.openai,
+    'sk-test-0123456789abcdefghij',
+  );
 }
 
 ChatMemory hebrewChat() => ChatMemory(
@@ -46,7 +50,7 @@ Future<void> pumpHome(WidgetTester tester, {ChatMemory? chat}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        apiKeyProvider.overrideWith(_Key.new),
+        apiKeysProvider.overrideWith(_Key.new),
         exchangeStoreProvider.overrideWithValue(
           MemoryExchangeStore(
             chats: [?chat],

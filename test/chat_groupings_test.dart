@@ -245,7 +245,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          apiKeyProvider.overrideWith(
+          apiKeysProvider.overrideWith(
             () => FakeApiKey('sk-test-0123456789abcdefghij'),
           ),
           exchangeStoreProvider.overrideWithValue(

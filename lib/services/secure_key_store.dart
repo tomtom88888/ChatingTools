@@ -1,10 +1,13 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// Stores the OpenAI API key in the platform keystore — Keychain on iOS,
-/// EncryptedSharedPreferences on Android.
+import '../models/ai_provider.dart';
+
+/// Stores the API keys in the platform keystore — Keychain on iOS,
+/// EncryptedSharedPreferences on Android — one entry per provider.
 ///
-/// The key is never written anywhere else, never printed, and never included in
-/// an error message. Only [mask] ever renders it, and only partially.
+/// The keys are never written anywhere else, never printed, and never
+/// included in an error message. Only [mask] ever renders one, and only
+/// partially.
 class SecureKeyStore {
   SecureKeyStore({FlutterSecureStorage? storage})
     : _storage =
@@ -18,44 +21,66 @@ class SecureKeyStore {
             ),
           );
 
-  static const String _keyName = 'openai_api_key';
+  /// The OpenAI entry keeps the name it had when it was the only key.
+  static String _keyName(AiProvider provider) => switch (provider) {
+    AiProvider.openai => 'openai_api_key',
+    AiProvider.anthropic => 'anthropic_api_key',
+    AiProvider.gemini => 'gemini_api_key',
+  };
 
   final FlutterSecureStorage _storage;
 
-  Future<String?> read() async {
-    final value = await _storage.read(key: _keyName);
+  Future<String?> read(AiProvider provider) async {
+    final value = await _storage.read(key: _keyName(provider));
     if (value == null) return null;
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
 
-  Future<bool> hasKey() async => (await read()) != null;
+  /// Every saved key.
+  Future<ApiKeys> readAll() async {
+    var keys = const ApiKeys();
+    for (final provider in AiProvider.values) {
+      final key = await read(provider);
+      if (key != null) keys = keys.withKey(provider, key);
+    }
+    return keys;
+  }
 
-  Future<void> write(String key) async {
+  Future<void> write(AiProvider provider, String key) async {
     final trimmed = key.trim();
     if (trimmed.isEmpty) {
       throw ArgumentError('refusing to store an empty API key');
     }
-    await _storage.write(key: _keyName, value: trimmed);
+    await _storage.write(key: _keyName(provider), value: trimmed);
   }
 
-  Future<void> delete() => _storage.delete(key: _keyName);
+  Future<void> delete(AiProvider provider) =>
+      _storage.delete(key: _keyName(provider));
 
-  /// A shape check, not an authorisation check — only OpenAI can say whether a
-  /// key works. This just catches the obvious paste mistakes.
+  Future<void> deleteAll() async {
+    for (final provider in AiProvider.values) {
+      await delete(provider);
+    }
+  }
+
+  /// A shape check, not an authorisation check — only the provider can say
+  /// whether a key works. This just catches the obvious paste mistakes, and
+  /// works out whose key it is.
   static String? validationError(String key) {
     final trimmed = key.trim();
     if (trimmed.isEmpty) return 'Paste your key to continue.';
     if (trimmed.contains(RegExp(r'\s'))) {
       return "There's a space in there — pasting often grabs one.";
     }
-    if (!trimmed.startsWith('sk-')) {
-      return 'OpenAI keys start with sk-. This looks like a different '
-          "service's key.";
+    final provider = AiProvider.forKey(trimmed);
+    if (provider == null) {
+      return "That doesn't look like an OpenAI (sk-…), Claude (sk-ant-…) or "
+          'Gemini (AIza…) key.';
     }
     if (trimmed.length < 20) {
-      return "That's shorter than any OpenAI key — probably a partial "
-          'paste.';
+      return "That's shorter than any ${provider.label} key — probably a "
+          'partial paste.';
     }
     return null;
   }

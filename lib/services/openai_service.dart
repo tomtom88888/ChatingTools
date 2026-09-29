@@ -6,41 +6,85 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../models/ai_provider.dart';
 import '../models/api_usage.dart';
 import '../models/extracted_message.dart';
 import '../models/finetune_job.dart';
 import 'openai_exception.dart';
+import 'pricing.dart';
 import 'quoted_replies.dart';
 
-/// A message in an OpenAI chat request.
+/// A message in a chat request, in OpenAI's shape. Requests to Claude and
+/// Gemini are written in the same shape and translated on the way out.
 typedef ChatMessageJson = Map<String, Object?>;
 
-/// Thin, direct client for the OpenAI REST API.
+/// Thin, direct client for the OpenAI, Claude and Gemini REST APIs.
 ///
-/// Deliberately has no Flutter dependency and no storage of its own: the key is
-/// handed in per instance by whoever read it out of secure storage. The key is
-/// never logged, never put in an exception, and never written to disk here.
+/// Every call names a model, and the model's name decides which provider it
+/// goes to (see [AiProvider.forModel]), so the rest of the app never has to
+/// know which one it is talking to. Fine-tuning is OpenAI's alone.
+///
+/// Deliberately has no Flutter dependency and no storage of its own: the keys
+/// are handed in per instance by whoever read them out of secure storage. A
+/// key is never logged, never put in an exception, and never written to disk
+/// here.
 class OpenAiService {
   OpenAiService({
-    required String apiKey,
+    String apiKey = '',
+    String anthropicKey = '',
+    String geminiKey = '',
     http.Client? client,
     this.baseUrl = 'https://api.openai.com/v1',
+    this.anthropicBaseUrl = 'https://api.anthropic.com/v1',
+    this.geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta',
     this.requestTimeout = const Duration(seconds: 60),
     this.visionTimeout = const Duration(seconds: 120),
+    this.thinkingTimeout = const Duration(minutes: 3),
     this.maxRetries = 3,
     this.onUsage,
     this.interruptions,
     this.whenActive,
-  }) : _apiKey = apiKey.trim(),
+    this.keepAlive,
+  }) : _keys = ApiKeys({
+         AiProvider.openai: apiKey.trim(),
+         AiProvider.anthropic: anthropicKey.trim(),
+         AiProvider.gemini: geminiKey.trim(),
+       }),
        _client = client ?? http.Client(),
        _ownsClient = client == null;
 
-  final String _apiKey;
+  /// A client for every provider in [keys].
+  factory OpenAiService.forKeys(
+    ApiKeys keys, {
+    http.Client? client,
+    int maxRetries = 3,
+    void Function(ApiUsage usage)? onUsage,
+    int Function()? interruptions,
+    Future<void> Function()? whenActive,
+    Future<T> Function<T>(Future<T> Function() work)? keepAlive,
+  }) => OpenAiService(
+    apiKey: keys[AiProvider.openai] ?? '',
+    anthropicKey: keys[AiProvider.anthropic] ?? '',
+    geminiKey: keys[AiProvider.gemini] ?? '',
+    client: client,
+    maxRetries: maxRetries,
+    onUsage: onUsage,
+    interruptions: interruptions,
+    whenActive: whenActive,
+    keepAlive: keepAlive,
+  );
+
+  final ApiKeys _keys;
   final http.Client _client;
   final bool _ownsClient;
   final String baseUrl;
+  final String anthropicBaseUrl;
+  final String geminiBaseUrl;
   final Duration requestTimeout;
   final Duration visionTimeout;
+
+  /// Claude and Gemini think before they answer, which can take a while.
+  final Duration thinkingTimeout;
   final int maxRetries;
 
   /// Told about the tokens every successful call used, as OpenAI reported
@@ -53,6 +97,10 @@ class OpenAiService {
   /// again, without using up a retry. Both null outside the app.
   final int Function()? interruptions;
   final Future<void> Function()? whenActive;
+
+  /// Runs each request, so the app can ask the phone to keep it alive while
+  /// one is in flight. Null outside the app.
+  final Future<T> Function<T>(Future<T> Function() work)? keepAlive;
 
   /// Most times one request is resumed after the app was sent away.
   static const int maxResumes = 5;
@@ -80,7 +128,11 @@ class OpenAiService {
     if (_ownsClient) _client.close();
   }
 
-  bool get hasKey => _apiKey.isNotEmpty;
+  /// Whether any key was given.
+  bool get hasKey => _keys.isNotEmpty;
+
+  /// Whether there is a key for [provider].
+  bool hasKeyFor(AiProvider provider) => _keys.has(provider);
 
   // ---------------------------------------------------------------- embeddings
 
@@ -94,6 +146,19 @@ class OpenAiService {
     int? dimensions,
   }) async {
     if (inputs.isEmpty) return const [];
+    switch (AiProvider.forModel(model)) {
+      case AiProvider.gemini:
+        return _geminiEmbed(inputs, model: model, dimensions: dimensions);
+      case AiProvider.anthropic:
+        throw const OpenAiException(
+          OpenAiErrorKind.notAvailable,
+          "Claude can't fingerprint chats: it has no embeddings. In "
+          'Settings, add an OpenAI or Gemini key and pick one of its '
+          'fingerprint models.',
+        );
+      case AiProvider.openai:
+        break;
+    }
     final body = <String, Object?>{'model': model, 'input': inputs};
     if (dimensions != null && model.startsWith('text-embedding-3')) {
       body['dimensions'] = dimensions;
@@ -252,6 +317,29 @@ class OpenAiService {
     required UsageKind usageKind,
     required int n,
   }) async {
+    final provider = AiProvider.forModel(model);
+    if (provider != AiProvider.openai) {
+      // Neither takes OpenAI's `n` reliably, so several drafts are several
+      // requests, sent together.
+      Future<String> one() => provider == AiProvider.anthropic
+          ? _claudeText(
+              model: model,
+              messages: messages,
+              maxOutputTokens: maxOutputTokens,
+              jsonMode: jsonMode,
+              timeout: timeout,
+              usageKind: usageKind,
+            )
+          : _geminiText(
+              model: model,
+              messages: messages,
+              temperature: temperature,
+              jsonMode: jsonMode,
+              timeout: timeout,
+              usageKind: usageKind,
+            );
+      return Future.wait([for (var i = 0; i < (n < 1 ? 1 : n); i++) one()]);
+    }
     // Up to two extra attempts, each dropping a parameter this model rejected.
     for (var attempt = 0; attempt < 3; attempt++) {
       final body = <String, Object?>{'model': model, 'messages': messages};
@@ -334,6 +422,374 @@ class OpenAiService {
       OpenAiErrorKind.badResponse,
       'The response message had no text content.',
     );
+  }
+
+  // ------------------------------------------------------------------- claude
+
+  /// Sent only while Claude accepts them; a model that rejects one gets it
+  /// dropped, like OpenAI's optional parameters.
+  bool _claudeFallbacks = true;
+  bool _claudeEffort = true;
+
+  /// Room for Claude's thinking as well as its answer.
+  static const int claudeMaxTokens = 16000;
+
+  Future<String> _claudeText({
+    required String model,
+    required List<ChatMessageJson> messages,
+    required int? maxOutputTokens,
+    required bool jsonMode,
+    required Duration timeout,
+    required UsageKind usageKind,
+  }) async {
+    final (system, turns) = claudeMessages(messages);
+    final instructions = [
+      if (system.isNotEmpty) system,
+      if (jsonMode) 'Answer with one JSON object and nothing else.',
+    ].join('\n\n');
+    // Replies want speed more than deep thought; reading a screenshot or a
+    // chat's facts gets Claude's default.
+    final effort = usageKind == UsageKind.generation && !jsonMode
+        ? 'low'
+        : null;
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final body = <String, Object?>{
+        'model': model,
+        'max_tokens': math.max(maxOutputTokens ?? 0, claudeMaxTokens),
+        if (instructions.isNotEmpty) 'system': instructions,
+        'messages': turns,
+        if (effort != null && _claudeEffort)
+          'output_config': {'effort': effort},
+        // If Claude declines, the request is run again on another Claude
+        // model rather than failing.
+        if (_claudeFallbacks) 'fallbacks': 'default',
+      };
+      try {
+        final json = await _postJson(
+          '/messages',
+          body,
+          provider: AiProvider.anthropic,
+          timeout: timeout > thinkingTimeout ? timeout : thinkingTimeout,
+        );
+        _report(json, kind: usageKind, model: model);
+        return claudeTextOf(json);
+      } on OpenAiException catch (error) {
+        if (error.kind != OpenAiErrorKind.badRequest) rethrow;
+        final complaint = error.message.toLowerCase();
+        if (_claudeFallbacks && complaint.contains('fallback')) {
+          _claudeFallbacks = false;
+          continue;
+        }
+        if (_claudeEffort &&
+            effort != null &&
+            (complaint.contains('effort') ||
+                complaint.contains('output_config'))) {
+          _claudeEffort = false;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw OpenAiException(
+      OpenAiErrorKind.badRequest,
+      'The model "$model" rejected the request. Try a different model in '
+      'Settings.',
+    );
+  }
+
+  /// [messages] in Claude's shape: the system messages joined into one
+  /// instruction, the rest as turns that alternate between the user and
+  /// Claude, starting with the user.
+  static (String, List<Map<String, Object?>>) claudeMessages(
+    List<ChatMessageJson> messages,
+  ) {
+    final system = <String>[];
+    final turns = <Map<String, Object?>>[];
+    for (final message in messages) {
+      final role = message['role'];
+      final content = message['content'];
+      if (role == 'system' || role == 'developer') {
+        final text = _textOf(content);
+        if (text.trim().isNotEmpty) system.add(text);
+        continue;
+      }
+      final who = role == 'assistant' ? 'assistant' : 'user';
+      final blocks = _claudeBlocks(content);
+      if (blocks.isEmpty) continue;
+      if (turns.isNotEmpty && turns.last['role'] == who) {
+        (turns.last['content']! as List).addAll(blocks);
+      } else {
+        turns.add({'role': who, 'content': blocks});
+      }
+    }
+    if (turns.isEmpty || turns.first['role'] != 'user') {
+      turns.insert(0, {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': '(The conversation starts here.)'},
+        ],
+      });
+    }
+    return (system.join('\n\n'), turns);
+  }
+
+  static List<Map<String, Object?>> _claudeBlocks(Object? content) {
+    if (content is String) {
+      return [
+        if (content.trim().isNotEmpty) {'type': 'text', 'text': content},
+      ];
+    }
+    if (content is! List) return const [];
+    final blocks = <Map<String, Object?>>[];
+    for (final part in content.whereType<Map<String, Object?>>()) {
+      final text = part['text'];
+      if (part['type'] == 'text' && text is String && text.trim().isNotEmpty) {
+        blocks.add({'type': 'text', 'text': text});
+      }
+      final image = _imageOf(part);
+      if (image != null) {
+        blocks.add({
+          'type': 'image',
+          'source': {
+            'type': 'base64',
+            'media_type': image.$1,
+            'data': image.$2,
+          },
+        });
+      }
+    }
+    return blocks;
+  }
+
+  /// The text of Claude's answer, leaving out its thinking.
+  static String claudeTextOf(Map<String, Object?> json) {
+    if (json['stop_reason'] == 'refusal') {
+      throw const OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'Claude declined to answer this one. Try again, or pick a different '
+        'model in Settings.',
+      );
+    }
+    final content = json['content'];
+    if (content is! List) {
+      throw const OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'The response contained no message.',
+      );
+    }
+    return content
+        .whereType<Map<String, Object?>>()
+        .where((block) => block['type'] == 'text')
+        .map((block) => block['text'])
+        .whereType<String>()
+        .join();
+  }
+
+  // ------------------------------------------------------------------- gemini
+
+  Future<String> _geminiText({
+    required String model,
+    required List<ChatMessageJson> messages,
+    required double? temperature,
+    required bool jsonMode,
+    required Duration timeout,
+    required UsageKind usageKind,
+  }) async {
+    final (system, contents) = geminiContents(messages);
+    // No output limit: Gemini counts its thinking against it, and a limit
+    // that suits OpenAI can leave no room for the answer.
+    final body = <String, Object?>{
+      if (system.isNotEmpty)
+        'systemInstruction': {
+          'parts': [
+            {'text': system},
+          ],
+        },
+      'contents': contents,
+      'generationConfig': {
+        'temperature': ?temperature,
+        if (jsonMode) 'responseMimeType': 'application/json',
+      },
+    };
+    final json = await _postJson(
+      '/${_geminiName(model)}:generateContent',
+      body,
+      provider: AiProvider.gemini,
+      timeout: timeout > thinkingTimeout ? timeout : thinkingTimeout,
+    );
+    _report(json, kind: usageKind, model: model);
+    return geminiTextOf(json);
+  }
+
+  static String _geminiName(String model) =>
+      model.startsWith('models/') ? model : 'models/$model';
+
+  /// [messages] in Gemini's shape: the system messages joined into one
+  /// instruction, the rest as turns between the user and the model.
+  static (String, List<Map<String, Object?>>) geminiContents(
+    List<ChatMessageJson> messages,
+  ) {
+    final system = <String>[];
+    final contents = <Map<String, Object?>>[];
+    for (final message in messages) {
+      final role = message['role'];
+      final content = message['content'];
+      if (role == 'system' || role == 'developer') {
+        final text = _textOf(content);
+        if (text.trim().isNotEmpty) system.add(text);
+        continue;
+      }
+      final who = role == 'assistant' ? 'model' : 'user';
+      final parts = <Map<String, Object?>>[];
+      if (content is String) {
+        if (content.trim().isNotEmpty) parts.add({'text': content});
+      } else if (content is List) {
+        for (final part in content.whereType<Map<String, Object?>>()) {
+          final text = part['text'];
+          if (part['type'] == 'text' &&
+              text is String &&
+              text.trim().isNotEmpty) {
+            parts.add({'text': text});
+          }
+          final image = _imageOf(part);
+          if (image != null) {
+            parts.add({
+              'inlineData': {'mimeType': image.$1, 'data': image.$2},
+            });
+          }
+        }
+      }
+      if (parts.isEmpty) continue;
+      if (contents.isNotEmpty && contents.last['role'] == who) {
+        (contents.last['parts']! as List).addAll(parts);
+      } else {
+        contents.add({'role': who, 'parts': parts});
+      }
+    }
+    return (system.join('\n\n'), contents);
+  }
+
+  /// The text of Gemini's first answer, leaving out its thinking.
+  static String geminiTextOf(Map<String, Object?> json) {
+    final candidates = json['candidates'];
+    if (candidates is! List || candidates.isEmpty) {
+      final feedback = json['promptFeedback'];
+      final reason = feedback is Map ? feedback['blockReason'] : null;
+      throw OpenAiException(
+        OpenAiErrorKind.badResponse,
+        reason == null
+            ? 'Gemini returned no answer. Try again.'
+            : 'Gemini declined to answer this one ($reason). Try again, or '
+                  'pick a different model in Settings.',
+      );
+    }
+    final first = candidates.first;
+    final content = first is Map ? first['content'] : null;
+    final parts = content is Map ? content['parts'] : null;
+    final text = parts is List
+        ? parts
+              .whereType<Map<String, Object?>>()
+              .where((p) => p['thought'] != true)
+              .map((p) => p['text'])
+              .whereType<String>()
+              .join()
+        : '';
+    final finish = first is Map ? first['finishReason'] : null;
+    if (text.trim().isEmpty && finish is String && finish != 'STOP') {
+      throw OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'Gemini stopped without answering ($finish). Try again, or pick a '
+        'different model in Settings.',
+      );
+    }
+    return text;
+  }
+
+  Future<List<List<double>>> _geminiEmbed(
+    List<String> inputs, {
+    required String model,
+    required int? dimensions,
+  }) async {
+    final name = _geminiName(model);
+    final json = await _postJson(
+      '/$name:batchEmbedContents',
+      {
+        'requests': [
+          for (final input in inputs)
+            {
+              'model': name,
+              'content': {
+                'parts': [
+                  {'text': input},
+                ],
+              },
+              'outputDimensionality': ?dimensions,
+            },
+        ],
+      },
+      provider: AiProvider.gemini,
+      timeout: requestTimeout,
+    );
+    final data = json['embeddings'];
+    if (data is! List || data.length != inputs.length) {
+      throw OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'The embeddings response had ${data is List ? data.length : 0} vectors '
+        'for ${inputs.length} inputs.',
+      );
+    }
+    final vectors = [
+      for (final entry in data)
+        entry is Map && entry['values'] is List
+            ? (entry['values'] as List)
+                  .whereType<num>()
+                  .map((n) => n.toDouble())
+                  .toList(growable: false)
+            : const <double>[],
+    ];
+    if (vectors.any((v) => v.isEmpty)) {
+      throw const OpenAiException(
+        OpenAiErrorKind.badResponse,
+        'The embeddings response was missing vectors.',
+      );
+    }
+    // Gemini doesn't say how many tokens it read; estimate, for the tally.
+    onUsage?.call(
+      ApiUsage(
+        kind: UsageKind.embedding,
+        model: model,
+        inputTokens: Pricing.estimateTokensForAll(inputs),
+      ),
+    );
+    return vectors;
+  }
+
+  // ------------------------------------------------------------ message parts
+
+  /// The text of a message's content, whichever shape it is in.
+  static String _textOf(Object? content) {
+    if (content is String) return content;
+    if (content is! List) return '';
+    return content
+        .whereType<Map<String, Object?>>()
+        .map((part) => part['text'])
+        .whereType<String>()
+        .join('\n');
+  }
+
+  /// The media type and base64 data of an inline image part.
+  static (String, String)? _imageOf(Map<String, Object?> part) {
+    if (part['type'] != 'image_url') return null;
+    final image = part['image_url'];
+    final url = image is Map ? image['url'] : image;
+    if (url is! String) return null;
+    final match = RegExp(
+      r'^data:([^;,]+);base64,(.*)$',
+      dotAll: true,
+    ).firstMatch(url);
+    if (match == null) return null;
+    return (match.group(1)!, match.group(2)!);
   }
 
   // ------------------------------------------------------------------- vision
@@ -484,25 +940,62 @@ class OpenAiService {
 
   // -------------------------------------------------------------------- models
 
-  /// Model ids this account can actually use, so Settings never has to guess at
-  /// OpenAI's current naming.
+  /// Model ids the saved keys can actually use, so Settings never has to
+  /// guess at anyone's current naming. A provider that can't be reached is
+  /// left out, unless none can.
   Future<List<String>> listModels() async {
-    final json = await _getJson('/models');
-    final data = json['data'];
+    final ids = <String>[];
+    Object? failure;
+    for (final provider in _keys.providers) {
+      try {
+        ids.addAll(await listModelsFor(provider));
+      } on OpenAiException catch (error) {
+        failure = error;
+      }
+    }
+    if (ids.isEmpty && failure != null) throw failure;
+    return ids..sort();
+  }
+
+  /// The models one provider's key can use. Also how a key is checked
+  /// before it is saved.
+  Future<List<String>> listModelsFor(AiProvider provider) async {
+    final json = switch (provider) {
+      AiProvider.openai => await _getJson('/models'),
+      AiProvider.anthropic => await _getJson(
+        '/models?limit=1000',
+        provider: provider,
+      ),
+      AiProvider.gemini => await _getJson(
+        '/models?pageSize=1000',
+        provider: provider,
+      ),
+    };
+    final data = json['data'] ?? json['models'];
     if (data is! List) {
       throw const OpenAiException(
         OpenAiErrorKind.badResponse,
         'The model list came back in an unexpected shape.',
       );
     }
-    final ids =
-        data
-            .whereType<Map<String, Object?>>()
-            .map((m) => m['id'])
-            .whereType<String>()
-            .toList()
-          ..sort();
-    return ids;
+    final ids = <String>[];
+    for (final m in data.whereType<Map<String, Object?>>()) {
+      final id = m['id'] ?? m['name'];
+      if (id is! String) continue;
+      if (provider == AiProvider.gemini) {
+        // Only the models that write or fingerprint.
+        final methods = m['supportedGenerationMethods'];
+        if (methods is List &&
+            !methods.contains('generateContent') &&
+            !methods.contains('batchEmbedContents')) {
+          continue;
+        }
+        ids.add(id.startsWith('models/') ? id.substring(7) : id);
+      } else {
+        ids.add(id);
+      }
+    }
+    return ids..sort();
   }
 
   // --------------------------------------------------------------------- files
@@ -513,7 +1006,7 @@ class OpenAiService {
     required List<int> bytes,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/files'))
-      ..headers['Authorization'] = 'Bearer $_apiKey'
+      ..headers['Authorization'] = 'Bearer ${_keys[AiProvider.openai] ?? ''}'
       ..fields['purpose'] = 'fine-tune'
       ..files.add(
         http.MultipartFile.fromBytes('file', bytes, filename: filename),
@@ -573,39 +1066,60 @@ class OpenAiService {
 
   // ----------------------------------------------------------------- transport
 
-  Uri _uri(String path) => Uri.parse('$baseUrl$path');
+  Uri _uri(String path, [AiProvider provider = AiProvider.openai]) =>
+      Uri.parse(switch (provider) {
+        AiProvider.openai => '$baseUrl$path',
+        AiProvider.anthropic => '$anthropicBaseUrl$path',
+        AiProvider.gemini => '$geminiBaseUrl$path',
+      });
 
-  Map<String, String> get _jsonHeaders => {
-    'Authorization': 'Bearer $_apiKey',
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  };
+  Map<String, String> _jsonHeaders(AiProvider provider) {
+    final key = _keys[provider] ?? '';
+    return {
+      ...switch (provider) {
+        AiProvider.openai => {'Authorization': 'Bearer $key'},
+        AiProvider.anthropic => {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          if (_claudeFallbacks)
+            'anthropic-beta': 'server-side-fallback-2026-07-01',
+        },
+        AiProvider.gemini => {'x-goog-api-key': key},
+      },
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+  }
 
   Future<Map<String, Object?>> _postJson(
     String path,
     Map<String, Object?> body, {
     Duration? timeout,
+    AiProvider provider = AiProvider.openai,
   }) async {
     final response = await _send(
       () => _client.post(
-        _uri(path),
-        headers: _jsonHeaders,
+        _uri(path, provider),
+        headers: _jsonHeaders(provider),
         body: jsonEncode(body),
       ),
       timeout: timeout ?? requestTimeout,
+      provider: provider,
     );
-    return _decodeBody(response);
+    return _decodeBody(response, provider);
   }
 
   Future<Map<String, Object?>> _getJson(
     String path, {
     Duration? timeout,
+    AiProvider provider = AiProvider.openai,
   }) async {
     final response = await _send(
-      () => _client.get(_uri(path), headers: _jsonHeaders),
+      () => _client.get(_uri(path, provider), headers: _jsonHeaders(provider)),
       timeout: timeout ?? requestTimeout,
+      provider: provider,
     );
-    return _decodeBody(response);
+    return _decodeBody(response, provider);
   }
 
   /// Sends a request, retrying transient failures with exponential backoff and
@@ -615,13 +1129,28 @@ class OpenAiService {
     Future<http.Response> Function() send, {
     required Duration timeout,
     int? retries,
+    AiProvider provider = AiProvider.openai,
+  }) {
+    final guard = keepAlive;
+    Future<http.Response> run() =>
+        _sendNow(send, timeout: timeout, retries: retries, provider: provider);
+    return guard == null ? run() : guard(run);
+  }
+
+  Future<http.Response> _sendNow(
+    Future<http.Response> Function() send, {
+    required Duration timeout,
+    required int? retries,
+    required AiProvider provider,
   }) async {
-    if (!hasKey) {
-      throw const OpenAiException(
+    if (!_keys.has(provider)) {
+      throw OpenAiException(
         OpenAiErrorKind.missingKey,
-        'No OpenAI API key saved yet. Add one in Settings.',
+        'No ${provider.label} API key saved. Add one in Settings, or pick a '
+        'model from a provider you have a key for.',
       );
     }
+    final name = provider.label;
     final attempts = (retries ?? maxRetries) + 1;
     OpenAiException? last;
     var resumes = 0;
@@ -651,7 +1180,7 @@ class OpenAiService {
       try {
         final response = await send().timeout(timeout);
         if (response.statusCode < 400) return response;
-        final failure = _failureFor(response);
+        final failure = _failureFor(response, provider);
         if (!failure.isTransient || attempt == attempts - 1) throw failure;
         last = failure;
       } on OpenAiException {
@@ -661,63 +1190,64 @@ class OpenAiService {
           attempt--; // Not the connection's fault: this try doesn't count.
           continue;
         }
-        last = const OpenAiException(
+        last = OpenAiException(
           OpenAiErrorKind.timeout,
-          'OpenAI took too long to answer. Check your connection and try '
+          '$name took too long to answer. Check your connection and try '
           'again.',
         );
         if (attempt == attempts - 1) throw last;
-      } on SocketException {
+      } on Exception catch (error) {
+        // Sockets, TLS, HTTP: however the connection broke, a phone that
+        // froze the app is the likelier cause if it was sent away meanwhile.
         if (await resumed()) {
           attempt--; // Not the connection's fault: this try doesn't count.
           continue;
         }
-        last = const OpenAiException(
+        if (error is! IOException && error is! http.ClientException) rethrow;
+        last = OpenAiException(
           OpenAiErrorKind.network,
-          "Couldn't reach OpenAI. Check your internet connection.",
-        );
-        if (attempt == attempts - 1) throw last;
-      } on http.ClientException {
-        if (await resumed()) {
-          attempt--; // Not the connection's fault: this try doesn't count.
-          continue;
-        }
-        last = const OpenAiException(
-          OpenAiErrorKind.network,
-          "Couldn't reach OpenAI. Check your internet connection.",
+          "Couldn't reach $name. Check your internet connection.",
         );
         if (attempt == attempts - 1) throw last;
       }
     }
     throw last ??
-        const OpenAiException(
+        OpenAiException(
           OpenAiErrorKind.network,
-          'The request to OpenAI failed.',
+          'The request to $name failed.',
         );
   }
 
-  static Map<String, Object?> _decodeBody(http.Response response) {
-    if (response.statusCode >= 400) throw _failureFor(response);
+  static Map<String, Object?> _decodeBody(
+    http.Response response, [
+    AiProvider provider = AiProvider.openai,
+  ]) {
+    if (response.statusCode >= 400) throw _failureFor(response, provider);
     if (response.body.trim().isEmpty) return const {};
     try {
       final decoded = jsonDecode(response.body);
       if (decoded is Map<String, Object?>) return decoded;
       return {'data': decoded};
     } on FormatException {
-      throw const OpenAiException(
+      throw OpenAiException(
         OpenAiErrorKind.badResponse,
-        'OpenAI returned a response that was not JSON.',
+        '${provider.label} returned a response that was not JSON.',
       );
     }
   }
 
   /// Turns an error response into a message worth showing a person. Only the
   /// response body is read — request headers, and therefore the key, never are.
-  static OpenAiException _failureFor(http.Response response) {
+  static OpenAiException _failureFor(
+    http.Response response, [
+    AiProvider provider = AiProvider.openai,
+  ]) {
     final status = response.statusCode;
+    final name = provider.label;
     String? apiMessage;
     String? apiType;
     try {
+      // All three put an `error` object with a `message` in the body.
       final decoded = jsonDecode(response.body);
       if (decoded is Map) {
         final error = decoded['error'];
@@ -726,11 +1256,13 @@ class OpenAiService {
             apiMessage = error['message'] as String;
           }
           if (error['type'] is String) apiType = error['type'] as String;
+          if (error['status'] is String) apiType ??= error['status'] as String;
         }
       }
     } on FormatException {
       // Non-JSON error body; fall back to the generic messages below.
     }
+    final complaint = (apiMessage ?? '').toLowerCase();
 
     final retryAfterHeader = response.headers['retry-after'];
     final retryAfterSeconds = double.tryParse(retryAfterHeader ?? '');
@@ -738,45 +1270,56 @@ class OpenAiService {
         ? null
         : Duration(milliseconds: (retryAfterSeconds * 1000).round());
 
-    return switch (status) {
-      401 => const OpenAiException(
+    // Gemini answers a bad key with a 400, and Claude an empty account with
+    // one.
+    final badKey =
+        status == 401 ||
+        (provider == AiProvider.gemini &&
+            complaint.contains('api key not valid'));
+    final noCredit =
+        apiType == 'insufficient_quota' ||
+        complaint.contains('credit balance is too low');
+
+    if (badKey) {
+      return OpenAiException(
         OpenAiErrorKind.badKey,
-        'OpenAI rejected that API key. Check it in Settings, or create a new '
-        'one at platform.openai.com.',
-        statusCode: 401,
-      ),
+        '$name rejected that API key. Check it in Settings, or create a new '
+        'one at ${provider.keysPage}.',
+        statusCode: status,
+      );
+    }
+    if (noCredit) {
+      return OpenAiException(
+        OpenAiErrorKind.insufficientQuota,
+        apiMessage ??
+            'Your $name account has no credit left. Add billing and try '
+                'again.',
+        statusCode: status,
+      );
+    }
+    return switch (status) {
       403 || 404 => OpenAiException(
         OpenAiErrorKind.notAvailable,
         apiMessage ??
-            'Your OpenAI account cannot use that model or endpoint. Try a '
+            'Your $name account cannot use that model or endpoint. Try a '
                 'different model in Settings.',
         statusCode: status,
       ),
-      429 =>
-        apiType == 'insufficient_quota'
-            ? OpenAiException(
-                OpenAiErrorKind.insufficientQuota,
-                apiMessage ??
-                    'Your OpenAI account has no credit left. Add billing at '
-                        'platform.openai.com and try again.',
-                statusCode: 429,
-              )
-            : OpenAiException(
-                OpenAiErrorKind.rateLimited,
-                'OpenAI is rate-limiting this key. Waiting a moment and '
-                'retrying.',
-                statusCode: 429,
-                retryAfter: retryAfter,
-              ),
+      429 => OpenAiException(
+        OpenAiErrorKind.rateLimited,
+        '$name is rate-limiting this key. Waiting a moment and retrying.',
+        statusCode: 429,
+        retryAfter: retryAfter,
+      ),
       >= 500 => OpenAiException(
         OpenAiErrorKind.serverError,
-        apiMessage ?? 'OpenAI had a server error ($status).',
+        apiMessage ?? '$name had a server error ($status).',
         statusCode: status,
         retryAfter: retryAfter,
       ),
       _ => OpenAiException(
         OpenAiErrorKind.badRequest,
-        apiMessage ?? 'OpenAI rejected the request ($status).',
+        apiMessage ?? '$name rejected the request ($status).',
         statusCode: status,
       ),
     };

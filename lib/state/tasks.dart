@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'keep_awake.dart';
+
 /// Where a long job has got to.
 enum TaskStatus { running, done, failed }
 
@@ -134,7 +136,9 @@ class TaskCenter extends Notifier<List<BackgroundTask>> {
         if (t.id != id) t,
       BackgroundTask(id: id, title: title, detail: detail),
     ];
-    unawaited(_run(handle, work));
+    // The job keeps going with the screen off or another app in front.
+    KeepAwake.instance.describe(title);
+    unawaited(KeepAwake.instance.during(() => _run(handle, work)));
   }
 
   Future<void> _run(

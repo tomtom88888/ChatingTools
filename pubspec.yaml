@@ -30,6 +30,7 @@ dependencies:
   image_picker: ^1.2.3              # pick conversation screenshot
   archive: ^4.3.0                   # read WhatsApp .zip exports
   receive_sharing_intent: ^1.9.0    # Android/iOS share sheet
+  flutter_foreground_task: ^11.0.3
 
 dev_dependencies:
   flutter_test:

@@ -141,7 +141,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
               if (!hasKey)
                 const Notice(
-                  'Add your OpenAI key in Settings to search.',
+                  'Add an OpenAI or Gemini key in Settings to search.',
                   tone: NoticeTone.caution,
                 ),
               if (searchable.length > 1)
@@ -184,8 +184,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           },
         ),
         const Footnote(
-          'Your search is sent to OpenAI to fingerprint it. Your chats are '
-          'searched on this phone.',
+          'Your search is sent to OpenAI or Gemini, whichever fingerprints '
+          'your chats, to fingerprint it. Your chats are searched on this '
+          'phone.',
         ),
       ],
     );

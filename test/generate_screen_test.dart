@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:replylikeme/models/ai_provider.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/reply_suggestion.dart';
@@ -20,9 +21,12 @@ import 'package:replylikeme/services/vector_math.dart';
 import 'package:replylikeme/state/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class _Key extends ApiKeyNotifier {
+class _Key extends ApiKeysNotifier {
   @override
-  Future<String?> build() async => 'sk-test-0123456789abcdefghij';
+  Future<ApiKeys> build() async => const ApiKeys().withKey(
+    AiProvider.openai,
+    'sk-test-0123456789abcdefghij',
+  );
 }
 
 http.Response _json(Object body) => http.Response(
@@ -170,7 +174,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          apiKeyProvider.overrideWith(_Key.new),
+          apiKeysProvider.overrideWith(_Key.new),
           exchangeStoreProvider.overrideWithValue(store),
           openAiServiceProvider.overrideWithValue(openai),
         ],

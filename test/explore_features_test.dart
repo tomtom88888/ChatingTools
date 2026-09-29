@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:replylikeme/models/ai_provider.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
@@ -83,9 +84,12 @@ OpenAiService fake({
   }),
 );
 
-class _Key extends ApiKeyNotifier {
+class _Key extends ApiKeysNotifier {
   @override
-  Future<String?> build() async => 'sk-test-0123456789abcdefghij';
+  Future<ApiKeys> build() async => const ApiKeys().withKey(
+    AiProvider.openai,
+    'sk-test-0123456789abcdefghij',
+  );
 }
 
 ChatMemory chat({int id = 1, String them = 'Maya', bool group = false}) =>
@@ -360,7 +364,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          apiKeyProvider.overrideWith(_Key.new),
+          apiKeysProvider.overrideWith(_Key.new),
           exchangeStoreProvider.overrideWithValue(store),
           openAiServiceProvider.overrideWithValue(openai),
           settingsProvider.overrideWith(_Settings.new),

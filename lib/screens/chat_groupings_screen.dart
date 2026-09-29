@@ -209,7 +209,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                 '${nameList([for (final c in source) bidiIsolate(c.theirName.isEmpty ? "an unnamed chat" : c.theirName)])} '
                 '(${grouped(replies)} ${replies == 1 ? "reply" : "replies"}) is grouped by what was being said. '
                 'The grouping happens on the phone; a few short samples from '
-                'each group go to OpenAI so it can name them.',
+                'each group go to the AI so it can name them.',
                 style: Type.prose(size: 14, color: Paper.body, height: 1.45),
               ),
               NumberStepper(
@@ -232,7 +232,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                   subtitle: hasKey
                       ? 'Into $_count groups, named by '
                             '${settings.generationModel}'
-                      : 'Add your OpenAI key in Settings first',
+                      : 'Add an API key in Settings first',
                   tone: groups == null ? ActionTone.accent : ActionTone.outline,
                   onTap: hasKey ? () => _run(source) : null,
                 ),

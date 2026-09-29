@@ -16,7 +16,7 @@ enum UsageKind {
   };
 }
 
-/// The tokens one API call used, as OpenAI reported them.
+/// The tokens one API call used, as the provider reported them.
 class ApiUsage {
   const ApiUsage({
     required this.kind,
@@ -30,12 +30,27 @@ class ApiUsage {
   final int inputTokens;
   final int outputTokens;
 
-  /// Reads the `usage` object of an OpenAI response, or `null` if it has none.
+  /// Reads the token counts of a response, or `null` if it has none.
   static ApiUsage? fromResponse(
     Map<String, Object?> json, {
     required UsageKind kind,
     required String model,
   }) {
+    // Gemini reports its own way.
+    final gemini = json['usageMetadata'];
+    if (gemini is Map) {
+      int g(String key) => (gemini[key] as num?)?.toInt() ?? 0;
+      final input = g('promptTokenCount');
+      final output = g('candidatesTokenCount') + g('thoughtsTokenCount');
+      if (input == 0 && output == 0) return null;
+      return ApiUsage(
+        kind: kind,
+        model: model,
+        inputTokens: input,
+        outputTokens: output,
+      );
+    }
+    // OpenAI's names, or Claude's.
     final usage = json['usage'];
     if (usage is! Map) return null;
     int n(String key) => (usage[key] as num?)?.toInt() ?? 0;

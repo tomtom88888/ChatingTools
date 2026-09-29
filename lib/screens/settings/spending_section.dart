@@ -81,8 +81,8 @@ class SpendingSection extends ConsumerWidget {
         const SizedBox(height: 7),
         Text(
           pricesSet
-              ? 'Counted from the token figures OpenAI sends back with each '
-                    'call. An estimate: your OpenAI dashboard has the bill.'
+              ? 'Counted from the token figures sent back with each call. '
+                    "An estimate: your provider's dashboard has the bill."
               : 'Fingerprinting is priced; reading screenshots and writing '
                     'replies are not until you enter your chat model’s prices '
                     'below, so the figure above is a floor.',

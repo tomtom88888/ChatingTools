@@ -179,7 +179,7 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
                   subtitle: hasKey
                       ? 'Sends what ${bidiIsolate(them)} wrote to '
                             '${settings.generationModel}'
-                      : 'Add your OpenAI key in Settings first',
+                      : 'Add an API key in Settings first',
                   tone: saved == null ? ActionTone.accent : ActionTone.outline,
                   onTap: hasKey ? () => _find(chat) : null,
                 ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/ai_provider.dart';
 import '../services/openai_exception.dart';
 import '../services/openai_service.dart';
 import '../services/secure_key_store.dart';
@@ -26,7 +27,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   /// Failed a local rule — no request was spent.
   String? _shapeProblem;
 
-  /// OpenAI, or the network, said no.
+  /// The provider, or the network, said no.
   Object? _failure;
 
   @override
@@ -78,10 +79,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
     // Verify before saving, so a typo surfaces here and not halfway through
     // training.
-    final probe = OpenAiService(apiKey: key, maxRetries: 1);
+    final provider = AiProvider.forKey(key)!;
+    final probe = OpenAiService.forKeys(
+      const ApiKeys().withKey(provider, key),
+      maxRetries: 1,
+    );
     try {
-      await probe.listModels();
-      await ref.read(apiKeyProvider.notifier).save(key);
+      await probe.listModelsFor(provider);
+      await ref.read(apiKeysProvider.notifier).save(provider, key);
     } on Object catch (error) {
       if (mounted) setState(() => _failure = error);
     } finally {
@@ -91,6 +96,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   }
 
   bool get _hasWhitespace => _controller.text.contains(RegExp(r'\s'));
+
+  /// Whose key is being typed, once it can be told.
+  AiProvider? get _provider => AiProvider.forKey(_controller.text);
 
   @override
   Widget build(BuildContext context) {
@@ -107,29 +115,27 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           PaperAction(
-            title: _busy ? 'Asking OpenAI…' : 'Check key & continue',
+            title: _busy
+                ? 'Asking ${_provider?.label ?? 'the provider'}…'
+                : 'Check key & continue',
             centred: true,
             busy: _busy,
             radius: Corner.field,
             onTap: _controller.text.trim().isEmpty ? null : _submit,
           ),
           const SizedBox(height: 14),
-          Text.rich(
-            TextSpan(
-              style: Type.prose(size: 13.5, height: 1.4),
-              children: [
-                const TextSpan(text: 'No key yet? '),
-                TextSpan(
-                  text: 'platform.openai.com/api-keys',
-                  style: Type.prose(size: 13.5, color: Paper.accent).copyWith(
-                    decoration: TextDecoration.underline,
-                    decorationColor: Paper.accent.withValues(alpha: 0.4),
-                  ),
-                ),
-              ],
-            ),
+          Text(
+            'No key yet? Make one at',
+            style: Type.prose(size: 13.5, height: 1.4),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 4),
+          for (final p in AiProvider.values)
+            Text(
+              '${p.label}: ${p.keysPage}',
+              style: Type.prose(size: 13, color: Paper.accent, height: 1.5),
+              textAlign: TextAlign.center,
+            ),
         ],
       ),
       children: [
@@ -162,11 +168,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           problem: _shapeProblem,
           onStripWhitespace: _hasWhitespace ? _stripWhitespace : null,
           onSubmitted: _busy ? null : _submit,
+          provider: _provider,
         ),
         if (failure != null)
           Notice(
             offline
-                ? "Couldn't reach OpenAI. Check your connection — nothing "
+                ? "Couldn't reach ${_provider?.label ?? 'the provider'}. "
+                      'Check your connection — nothing '
                       'was saved or spent.'
                 : describeFailure(failure),
             tone: offline ? NoticeTone.neutral : NoticeTone.failure,
@@ -184,10 +192,11 @@ class _WhereYourWordsGo extends StatelessWidget {
 
   static const List<String> _promises = [
     'Your chat file stays on this phone. Always.',
-    'OpenAI sees three things: the text being learned, the screenshot you '
-        'pick, and the prompt. Nothing else.',
-    'No account, no server of ours, no third party. You pay OpenAI directly '
-        'with your own key.',
+    'The AI you pick (OpenAI, Claude or Gemini) sees three things: the text '
+        'being learned, the screenshot you pick, and the prompt. Nothing '
+        'else.',
+    'No account, no server of ours. You pay the AI company directly with '
+        'your own key.',
   ];
 
   @override
@@ -242,6 +251,7 @@ class _KeyField extends StatelessWidget {
     required this.problem,
     required this.onStripWhitespace,
     required this.onSubmitted,
+    required this.provider,
   });
 
   final TextEditingController controller;
@@ -250,6 +260,7 @@ class _KeyField extends StatelessWidget {
   final String? problem;
   final VoidCallback? onStripWhitespace;
   final VoidCallback? onSubmitted;
+  final AiProvider? provider;
 
   @override
   Widget build(BuildContext context) {
@@ -263,7 +274,7 @@ class _KeyField extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Your OpenAI API key',
+                'Your OpenAI, Claude or Gemini API key',
                 style: Type.strong(size: 13, height: 1.35),
               ),
             ),
@@ -305,7 +316,7 @@ class _KeyField extends StatelessWidget {
               isDense: true,
               border: InputBorder.none,
               contentPadding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-              hintText: 'sk-…',
+              hintText: 'sk-…, sk-ant-… or AIza…',
               hintStyle: Type.numeric(
                 size: 15,
                 color: Paper.placeholder,
@@ -338,11 +349,18 @@ class _KeyField extends StatelessWidget {
             ],
           )
         else
-          Text(
-            "Stored in this phone's keychain. Checked with OpenAI once, before "
-            "it's saved.",
-            style: Type.prose(size: 13, color: Paper.tertiary, height: 1.45),
-          ),
+          Text(switch (provider) {
+            null =>
+              "Stored in this phone's keychain. Checked once, before it's "
+                  'saved. You can add keys from the others in Settings.',
+            AiProvider.anthropic =>
+              'A Claude key. Claude writes replies and reads screenshots, '
+                  "but can't fingerprint chats: to learn them, also add an "
+                  'OpenAI or Gemini key in Settings.',
+            final p =>
+              'A ${p.label} key. Stored in this phone\'s keychain, and '
+                  "checked with ${p.label} once, before it's saved.",
+          }, style: Type.prose(size: 13, color: Paper.tertiary, height: 1.45)),
       ],
     );
   }

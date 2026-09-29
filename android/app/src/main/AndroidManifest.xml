@@ -1,7 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The only network the app does is the OpenAI REST API. -->
+    <!-- The only network the app does is the AI providers' REST APIs. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- While an import, a screenshot or any other job is running, a
+         foreground service with a notification keeps the app alive when
+         the screen turns off or another app comes to the front. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Reading a shared export and a picked screenshot on older Android.
          API 33+ uses the system photo picker and the share stream, neither of
@@ -14,6 +22,14 @@
         android:label="Ditto"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- The service behind the "Ditto is working" notification. The
+             name is the plugin's and must not change. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="true"
+            android:exported="false" />
 
         <!-- singleTask so sharing a second export reuses the running app
              instead of stacking another copy of it. -->

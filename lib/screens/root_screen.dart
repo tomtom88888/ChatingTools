@@ -14,8 +14,8 @@ class RootScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final key = ref.watch(apiKeyProvider);
-    return key.when(
+    final keys = ref.watch(apiKeysProvider);
+    return keys.when(
       loading: () => Scaffold(
         backgroundColor: Paper.bg,
         body: Center(
@@ -31,14 +31,12 @@ class RootScreen extends ConsumerWidget {
           const DittoLogo(),
           FailureNotice(
             error: error,
-            title: "Couldn't read the saved key",
-            onRetry: () => ref.invalidate(apiKeyProvider),
+            title: "Couldn't read the saved keys",
+            onRetry: () => ref.invalidate(apiKeysProvider),
           ),
         ],
       ),
-      data: (value) => value == null || value.isEmpty
-          ? const SetupScreen()
-          : const HomeScreen(),
+      data: (value) => value.isEmpty ? const SetupScreen() : const HomeScreen(),
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:replylikeme/models/ai_provider.dart';
 import 'package:replylikeme/main.dart';
 import 'package:replylikeme/models/app_settings.dart';
 import 'package:replylikeme/models/chat_stats.dart';
@@ -20,13 +21,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 typedef FakeStore = MemoryExchangeStore;
 
 /// Stands in for the keystore-backed notifier.
-class FakeApiKey extends ApiKeyNotifier {
+class FakeApiKey extends ApiKeysNotifier {
   FakeApiKey(this.key);
 
   final String? key;
 
   @override
-  Future<String?> build() async => key;
+  Future<ApiKeys> build() async => key == null
+      ? const ApiKeys()
+      : const ApiKeys().withKey(AiProvider.openai, key!);
 }
 
 StoredExchange exampleExchange({int chatId = 1}) => StoredExchange(
@@ -70,7 +73,7 @@ Future<void> pumpApp(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        apiKeyProvider.overrideWith(() => FakeApiKey(apiKey)),
+        apiKeysProvider.overrideWith(() => FakeApiKey(apiKey)),
         exchangeStoreProvider.overrideWithValue(store ?? FakeStore()),
       ],
       child: const DittoApp(),
@@ -91,7 +94,7 @@ void main() {
   testWidgets('with no key saved, the app opens on setup', (tester) async {
     await pumpApp(tester);
 
-    expect(find.text('Your OpenAI API key'), findsOneWidget);
+    expect(find.text('Your OpenAI, Claude or Gemini API key'), findsOneWidget);
     expect(find.text('Check key & continue'), findsOneWidget);
     // The privacy promise is made before the key is asked for.
     expect(find.text('WHERE YOUR WORDS GO'), findsOneWidget);
@@ -113,7 +116,10 @@ void main() {
     await tester.tap(find.text('Check key & continue'));
     await tester.pump();
 
-    expect(find.textContaining('OpenAI keys start with sk-'), findsOneWidget);
+    expect(
+      find.textContaining("doesn't look like an OpenAI (sk-…), Claude"),
+      findsOneWidget,
+    );
   });
 
   testWidgets('with a key but nothing learned, home says so', (tester) async {

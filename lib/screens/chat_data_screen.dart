@@ -70,7 +70,7 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
                 const Notice(
                   'This chat was imported before its numbers were counted. '
                   'Import the same export again: nothing new is sent to '
-                  'OpenAI, so it costs nothing.',
+                  'the AI, so it costs nothing.',
                   tone: NoticeTone.caution,
                   title: 'No numbers yet',
                 )

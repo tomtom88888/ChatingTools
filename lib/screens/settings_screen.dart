@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/ai_provider.dart';
 import '../models/app_settings.dart';
+import '../services/openai_service.dart';
 import '../services/secure_key_store.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
@@ -28,8 +30,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _edit(AppSettings Function(AppSettings) change) =>
       ref.read(settingsProvider.notifier).edit(change);
 
-  /// Pulls the model ids this account can actually use, so the fields below
-  /// are not guesswork about OpenAI's current naming.
+  /// Pulls the model ids the saved keys can actually use, so the fields
+  /// below are not guesswork about anyone's current naming.
   Future<void> _loadAccountModels() async {
     final openai = ref.read(openAiServiceProvider);
     if (openai == null) return;
@@ -44,14 +46,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _replaceKey() async {
+  /// Adds, replaces or removes the key for [provider]. A new key is checked
+  /// with the provider before it is saved.
+  Future<void> _editKey(AiProvider provider, {required bool saved}) async {
     final controller = TextEditingController();
-    final key = await showDialog<String>(
+    final action = await showDialog<_KeyAction>(
       context: context,
       builder: (context) => PaperDialog(
-        title: 'Replace API key',
+        title: saved
+            ? 'Replace ${provider.label} key'
+            : 'Add ${provider.label} key',
         confirmLabel: 'Save',
-        onConfirm: () => Navigator.of(context).pop(controller.text),
+        onConfirm: () => Navigator.of(context).pop(_KeyAction.save),
+        extraLabel: saved ? 'Remove key' : null,
+        onExtra: saved
+            ? () => Navigator.of(context).pop(_KeyAction.remove)
+            : null,
         child: TextField(
           controller: controller,
           autofocus: true,
@@ -59,23 +69,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           autocorrect: false,
           enableSuggestions: false,
           style: Type.numeric(size: 14, weight: FontWeight.w400),
-          decoration: paperFieldDecoration('sk-…'),
+          decoration: paperFieldDecoration(provider.keyHint),
         ),
       ),
     );
+    final key = controller.text.trim();
     controller.dispose();
-    if (key == null || !mounted) return;
+    if (action == null || !mounted) return;
 
-    final problem = SecureKeyStore.validationError(key);
+    final keys = ref.read(apiKeysProvider.notifier);
+    if (action == _KeyAction.remove) {
+      try {
+        await keys.remove(provider);
+        if (mounted) showToast(context, '${provider.label} key removed.');
+      } on Object catch (error) {
+        if (mounted) showFailureSnackBar(context, error);
+      }
+      return;
+    }
+
+    final problem =
+        SecureKeyStore.validationError(key) ??
+        (AiProvider.forKey(key) == provider
+            ? null
+            : "That isn't a ${provider.label} key.");
     if (problem != null) {
       showFailureSnackBar(context, Exception(problem));
       return;
     }
+    final probe = OpenAiService.forKeys(
+      const ApiKeys().withKey(provider, key),
+      maxRetries: 1,
+    );
     try {
-      await ref.read(apiKeyProvider.notifier).save(key);
-      if (mounted) showToast(context, 'Key replaced.');
+      await probe.listModelsFor(provider);
+      await keys.save(provider, key);
+      if (mounted) showToast(context, '${provider.label} key saved.');
     } on Object catch (error) {
       if (mounted) showFailureSnackBar(context, error);
+    } finally {
+      probe.close();
     }
   }
 
@@ -120,7 +153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final settingsValue = ref.watch(settingsProvider);
-    final apiKey = ref.watch(apiKeyProvider).value;
+    final keys = ref.watch(apiKeysProvider).value ?? const ApiKeys();
     final chatCount = ref.watch(chatsProvider).value?.length ?? 0;
 
     return settingsValue.when(
@@ -155,21 +188,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SerifTitle('Settings', size: 34),
 
-          const MonoLabel('OpenAI account'),
+          const MonoLabel('API keys'),
           PaperCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TapRow(
-                  label: 'API key',
-                  value: apiKey == null
-                      ? 'Not saved'
-                      : SecureKeyStore.mask(apiKey),
-                  mono: apiKey != null,
-                  actionLabel: 'Replace',
-                  onTap: _replaceKey,
-                ),
+                for (final p in AiProvider.values)
+                  TapRow(
+                    key: ValueKey('key-${p.name}'),
+                    label: p.label,
+                    value: keys[p] == null
+                        ? 'Not added'
+                        : SecureKeyStore.mask(keys[p]!),
+                    mono: keys[p] != null,
+                    actionLabel: keys.has(p) ? 'Change' : 'Add',
+                    onTap: () => _editKey(p, saved: keys.has(p)),
+                  ),
                 TapRow(
                   label: 'Models your account can use',
                   value: _accountModels == null
@@ -188,22 +223,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ModelField(
             label: 'Reads screenshots',
             value: settings.visionModel,
-            suggestions: _suggest(AppSettings.suggestedChatModels),
+            suggestions: _suggest(AppSettings.chatModelsFor(keys)),
+            helper: _needsKey(settings.visionModel, keys),
             onChanged: (v) => _edit((s) => s.copyWith(visionModel: v)),
           ),
           ModelField(
             label: 'Writes replies',
             value: settings.generationModel,
-            suggestions: _suggest(AppSettings.suggestedChatModels),
+            suggestions: _suggest(AppSettings.chatModelsFor(keys)),
+            helper: _needsKey(settings.generationModel, keys),
             onChanged: (v) => _edit((s) => s.copyWith(generationModel: v)),
           ),
           ModelField(
             label: 'Fingerprints the memory',
             value: settings.embeddingModel,
-            suggestions: _suggest(AppSettings.suggestedEmbeddingModels),
+            suggestions: _suggest(AppSettings.embeddingModelsFor(keys)),
             helper:
-                'Changing this makes the memory you have unusable — '
-                'retrain afterwards.',
+                _needsKey(settings.embeddingModel, keys) ??
+                (keys.canFingerprint
+                    ? 'OpenAI or Gemini. Changing this makes the memory you '
+                          'have unusable — retrain afterwards.'
+                    : "Claude can't fingerprint: add an OpenAI or Gemini key "
+                          'to learn chats and search them.'),
             onChanged: (v) => _edit((s) => s.copyWith(embeddingModel: v)),
           ),
           NumberStepper(
@@ -326,12 +367,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           Footnote(
-            'Model names change. Load the list above and pick one your account '
-            "has, or check OpenAI's model documentation.",
+            'Model names change. Load the list above and pick one your keys '
+            "can use. A model's name decides who runs it: claude-… is Claude, "
+            'gemini-… is Gemini, anything else is OpenAI.',
           ),
         ],
       ),
     );
+  }
+
+  /// A warning when [model]'s provider has no key saved.
+  static String? _needsKey(String model, ApiKeys keys) {
+    final provider = AiProvider.forModel(model);
+    if (keys.has(provider)) return null;
+    return 'No ${provider.label} key saved: add one above, or pick another '
+        'model.';
   }
 
   /// The account's own models once loaded, otherwise the built-in suggestions.
@@ -342,3 +392,5 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 enum _WipeChoice { keepKey, everything }
+
+enum _KeyAction { save, remove }
