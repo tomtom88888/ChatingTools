@@ -9,6 +9,7 @@ import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
+import 'settings/settings_widgets.dart';
 
 /// Search your chats by what was said: "that restaurant she mentioned"
 /// finds the moment even when the word "restaurant" never came up.
@@ -66,6 +67,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         },
         embeddingModel: settings.embeddingModel,
         dimensions: settings.embeddingDimensions,
+        limit: settings.searchResultCount,
       );
       if (mounted) {
         setState(() {
@@ -128,6 +130,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 busy: _busy,
                 enabled: hasKey,
                 onSubmit: () => _search(searchable),
+              ),
+              NumberStepper(
+                label: 'Moments to show',
+                helper: 'The most a search brings back, closest first',
+                value: settings.searchResultCount,
+                min: 5,
+                max: 100,
+                step: 5,
+                onChanged: (v) {
+                  ref
+                      .read(settingsProvider.notifier)
+                      .edit((s) => s.copyWith(searchResultCount: v));
+                  if (_hits != null && !_busy) _search(searchable);
+                },
               ),
               if (!hasKey)
                 const Notice(
@@ -199,20 +215,25 @@ class _SearchField extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
       color: Paper.card,
-      borderRadius: Corner.all(Corner.pill),
+      borderRadius: Corner.all(Corner.field),
       border: Border.all(color: Paper.border, width: 1.5),
     ),
-    padding: const EdgeInsets.fromLTRB(18, 2, 6, 2),
+    padding: const EdgeInsets.fromLTRB(18, 4, 6, 4),
     child: Row(
+      // The field grows a line at a time as you write; the button stays at
+      // the bottom, by the last line.
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
           child: TextField(
             key: const ValueKey('search-field'),
             controller: controller,
             enabled: enabled,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => onSubmit(),
-            style: Type.prose(size: 15, color: Paper.ink),
+            minLines: 1,
+            maxLines: 6,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: Type.prose(size: 15, color: Paper.ink, height: 1.4),
             decoration: InputDecoration(
               border: InputBorder.none,
               hintText: 'that place she wanted to go…',

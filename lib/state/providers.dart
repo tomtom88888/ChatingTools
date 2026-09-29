@@ -17,6 +17,7 @@ import '../services/secure_key_store.dart';
 import '../services/settings_store.dart';
 import '../services/style_memory_service.dart';
 import '../services/usage_store.dart';
+import 'app_activity.dart';
 
 // --------------------------------------------------------------------- storage
 
@@ -105,6 +106,9 @@ final openAiServiceProvider = Provider<OpenAiService?>((ref) {
     // Looked up on every call rather than captured, so the tally keeps
     // counting after "delete all my data" rebuilds it.
     onUsage: (usage) => ref.read(usageProvider.notifier).record(usage),
+    // Survive the screen turning off or another app coming to the front.
+    interruptions: () => AppActivity.instance.interruptions,
+    whenActive: () => AppActivity.instance.whenActive(),
   );
   ref.onDispose(service.close);
   return service;

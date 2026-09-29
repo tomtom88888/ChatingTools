@@ -29,6 +29,8 @@ class OpenAiService {
     this.visionTimeout = const Duration(seconds: 120),
     this.maxRetries = 3,
     this.onUsage,
+    this.interruptions,
+    this.whenActive,
   }) : _apiKey = apiKey.trim(),
        _client = client ?? http.Client(),
        _ownsClient = client == null;
@@ -44,6 +46,16 @@ class OpenAiService {
   /// Told about the tokens every successful call used, as OpenAI reported
   /// them, so spending can be tracked on the device.
   final void Function(ApiUsage usage)? onUsage;
+
+  /// How many times the app has left the foreground so far, and a wait for
+  /// it to come back. A request that fails because the phone froze the app
+  /// (screen off, another app in front) waits for it to return and tries
+  /// again, without using up a retry. Both null outside the app.
+  final int Function()? interruptions;
+  final Future<void> Function()? whenActive;
+
+  /// Most times one request is resumed after the app was sent away.
+  static const int maxResumes = 5;
 
   void _report(
     Map<String, Object?> json, {
@@ -608,6 +620,7 @@ class OpenAiService {
     }
     final attempts = (retries ?? maxRetries) + 1;
     OpenAiException? last;
+    var resumes = 0;
 
     for (var attempt = 0; attempt < attempts; attempt++) {
       if (attempt > 0) {
@@ -616,6 +629,21 @@ class OpenAiService {
             Duration(milliseconds: 500 * math.pow(2, attempt - 1).toInt());
         await Future<void>.delayed(backoff);
       }
+      final before = interruptions?.call();
+
+      /// A connection that died because the app was sent away: wait until it
+      /// is back in front, then try again as if nothing happened.
+      Future<bool> resumed() async {
+        final wait = whenActive;
+        if (wait == null || before == null || resumes >= maxResumes) {
+          return false;
+        }
+        if (interruptions!() == before) return false;
+        resumes++;
+        await wait();
+        return true;
+      }
+
       try {
         final response = await send().timeout(timeout);
         if (response.statusCode < 400) return response;
@@ -625,6 +653,10 @@ class OpenAiService {
       } on OpenAiException {
         rethrow;
       } on TimeoutException {
+        if (await resumed()) {
+          attempt--; // Not the connection's fault: this try doesn't count.
+          continue;
+        }
         last = const OpenAiException(
           OpenAiErrorKind.timeout,
           'OpenAI took too long to answer. Check your connection and try '
@@ -632,12 +664,20 @@ class OpenAiService {
         );
         if (attempt == attempts - 1) throw last;
       } on SocketException {
+        if (await resumed()) {
+          attempt--; // Not the connection's fault: this try doesn't count.
+          continue;
+        }
         last = const OpenAiException(
           OpenAiErrorKind.network,
           "Couldn't reach OpenAI. Check your internet connection.",
         );
         if (attempt == attempts - 1) throw last;
       } on http.ClientException {
+        if (await resumed()) {
+          attempt--; // Not the connection's fault: this try doesn't count.
+          continue;
+        }
         last = const OpenAiException(
           OpenAiErrorKind.network,
           "Couldn't reach OpenAI. Check your internet connection.",

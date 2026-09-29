@@ -17,6 +17,7 @@ import '../services/share_intake.dart';
 import '../services/style_memory_service.dart';
 import '../services/whatsapp_parser.dart';
 import '../state/providers.dart';
+import '../state/tasks.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
@@ -67,8 +68,6 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
   int _planGeneration = 0;
 
   bool _reading = false;
-  bool _cancelRequested = false;
-  StyleMemoryProgress? _progress;
   Object? _error;
   ChatMemory? _built;
   int? _addedCount;
@@ -228,6 +227,10 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     _recomputeExchanges();
   }
 
+  static const String _taskId = 'import';
+
+  /// Learns the chat as a background job: it keeps going if this screen is
+  /// left, and only Stop ends it.
   Future<void> _build() async {
     final service = ref.read(styleMemoryServiceProvider);
     final me = _myName;
@@ -237,67 +240,87 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     final settings = await ref.read(settingsProvider.future);
     final chat = _chat;
     final plan = _plan;
+    final exchanges = _exchanges;
+    final isGroup = _isGroup;
+    final settingsNotifier = ref.read(settingsProvider.notifier);
+    final chatsNotifier = ref.read(chatsProvider.notifier);
 
     setState(() {
       _step = _Step.build;
-      _cancelRequested = false;
       _error = null;
-      _progress = null;
+      _addedCount = plan?.toEmbed.length;
     });
 
-    try {
-      final built = await service.build(
-        exchanges: _exchanges,
-        myName: me,
-        theirName: them,
-        embeddingModel: settings.embeddingModel,
-        dimensions: settings.embeddingDimensions,
-        profile: chat == null
-            ? StyleProfile.empty
-            : StyleProfile.measure(chat.turns, me: me),
-        stats: chat == null
-            ? ChatStats.empty
-            : ChatStats.from(chat, myName: me),
-        isGroup: _isGroup,
-        importPlan: plan,
-        onProgress: (progress) {
-          if (mounted) setState(() => _progress = progress);
-        },
-        isCancelled: () => _cancelRequested,
-      );
+    ref
+        .read(taskCenterProvider.notifier)
+        .start(
+          id: _taskId,
+          title: 'Learning ${them.isEmpty ? "the chat" : them}',
+          detail: 'Starting',
+          work: (task) async {
+            final built = await service.build(
+              exchanges: exchanges,
+              myName: me,
+              theirName: them,
+              embeddingModel: settings.embeddingModel,
+              dimensions: settings.embeddingDimensions,
+              profile: chat == null
+                  ? StyleProfile.empty
+                  : StyleProfile.measure(chat.turns, me: me),
+              stats: chat == null
+                  ? ChatStats.empty
+                  : ChatStats.from(chat, myName: me),
+              isGroup: isGroup,
+              importPlan: plan,
+              onProgress: (progress) => task.report(
+                detail:
+                    '${progress.stage} · ${grouped(progress.embedded)} of '
+                    '${grouped(progress.total)}',
+                progress: progress.total == 0 ? null : progress.fraction,
+              ),
+              isCancelled: () => task.cancelled,
+            );
+            // Remember who is who, so generating and fine-tuning agree with
+            // training.
+            await settingsNotifier.edit(
+              (current) => current.copyWith(myName: me, theirName: them),
+            );
+            await chatsNotifier.reload();
+            return built;
+          },
+        );
+  }
 
-      // Remember who is who, so generating and fine-tuning agree with training.
-      await ref
-          .read(settingsProvider.notifier)
-          .edit((current) => current.copyWith(myName: me, theirName: them));
-      await ref.read(chatsProvider.notifier).reload();
-
-      if (mounted) {
-        setState(() {
-          _built = built;
-          _addedCount = plan?.toEmbed.length;
-        });
-      }
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = error;
-          _step = _Step.read;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _progress = null);
-      }
+  /// Follows the import job: its result, its failure, or its being stopped.
+  void _followImport(List<BackgroundTask>? before, List<BackgroundTask> now) {
+    if (_step != _Step.build || _built != null) return;
+    final was = before?.where((t) => t.id == _taskId).firstOrNull;
+    final task = now.where((t) => t.id == _taskId).firstOrNull;
+    if (task == null) {
+      // Stopped: back to where the choices are.
+      if (was != null && was.running) setState(() => _step = _Step.read);
+      return;
+    }
+    if (task.status == TaskStatus.done && task.result is ChatMemory) {
+      setState(() => _built = task.result! as ChatMemory);
+    } else if (task.status == TaskStatus.failed) {
+      setState(() {
+        _error = task.error;
+        _step = _Step.read;
+      });
+      ref.read(taskCenterProvider.notifier).dismiss(_taskId);
     }
   }
 
   @override
-  Widget build(BuildContext context) => switch (_step) {
-    _Step.export => _exportStep(),
-    _Step.read => _readStep(),
-    _Step.build => _buildStep(),
-  };
+  Widget build(BuildContext context) {
+    ref.listen(taskCenterProvider, _followImport);
+    return switch (_step) {
+      _Step.export => _exportStep(),
+      _Step.read => _readStep(),
+      _Step.build => _buildStep(),
+    };
+  }
 
   // ------------------------------------------------------------------ step 1
 
@@ -551,9 +574,12 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         StepRail(step: 4, total: 4),
         if (done == null)
           _BuildingCard(
-            progress: _progress,
-            total: _plan?.toEmbed.length ?? _exchanges.length,
-            onCancel: () => setState(() => _cancelRequested = true),
+            task: ref
+                .watch(taskCenterProvider)
+                .where((t) => t.id == _taskId)
+                .firstOrNull,
+            onCancel: () =>
+                ref.read(taskCenterProvider.notifier).cancel(_taskId),
           )
         else
           _BuiltCard(
@@ -887,20 +913,14 @@ class _NameChoice extends StatelessWidget {
 }
 
 class _BuildingCard extends StatelessWidget {
-  const _BuildingCard({
-    required this.progress,
-    required this.total,
-    required this.onCancel,
-  });
+  const _BuildingCard({required this.task, required this.onCancel});
 
-  final StyleMemoryProgress? progress;
-  final int total;
+  final BackgroundTask? task;
   final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
-    final done = progress?.embedded ?? 0;
-    final of = progress?.total ?? total;
+    final fraction = task?.progress;
     return InkCard(
       radius: Corner.card,
       padding: const EdgeInsets.all(18),
@@ -921,17 +941,18 @@ class _BuildingCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                '${grouped(done)} / ${grouped(of)}',
-                style: Type.numeric(size: 13, color: Paper.amber),
-              ),
+              if (fraction != null)
+                Text(
+                  percent(fraction),
+                  style: Type.numeric(size: 13, color: Paper.amber),
+                ),
             ],
           ),
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: Corner.all(Corner.pill),
             child: LinearProgressIndicator(
-              value: progress?.fraction,
+              value: fraction,
               minHeight: 6,
               backgroundColor: Paper.onHero.withValues(alpha: 0.15),
               color: Paper.amber,
@@ -939,12 +960,19 @@ class _BuildingCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            progress?.stage ?? 'Starting',
+            task?.detail ?? 'Starting',
             style: Type.prose(
               size: 13,
               color: Paper.onHero.withValues(alpha: 0.65),
               height: 1.45,
             ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'You can leave this screen: it keeps going, and the bar at the '
+            'bottom shows how far it has got. If you switch apps, it picks up '
+            'again when you come back.',
+            style: Type.prose(size: 13, color: Paper.onHero, height: 1.45),
           ),
           const SizedBox(height: 12),
           GestureDetector(

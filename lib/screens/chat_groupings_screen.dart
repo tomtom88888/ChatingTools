@@ -8,7 +8,9 @@ import '../services/group_map.dart';
 import '../services/groupings_store.dart';
 import '../services/topic_timeline.dart';
 import '../state/providers.dart';
+import '../state/tasks.dart';
 import '../theme/tokens.dart';
+import '../widgets/background_job_card.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
@@ -28,8 +30,6 @@ class ChatGroupingsScreen extends ConsumerStatefulWidget {
 
 class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
   int _count = ChatGrouper.defaultGroups;
-  bool _busy = false;
-  Object? _error;
   List<ChatGroup>? _groups;
   GroupMap _map = GroupMap.empty;
   TopicTimeline? _timeline;
@@ -113,57 +113,50 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
     );
   }
 
-  Future<void> _run(List<ChatMemory> chats) async {
+  static const String _taskId = 'groupings';
+
+  /// Groups as a background job: it keeps going if this screen is left, and
+  /// only Stop ends it. The result is saved, and shown when it's ready.
+  void _run(List<ChatMemory> chats) {
     final grouper = ref.read(chatGrouperProvider);
     if (grouper == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final settings = await ref.read(settingsProvider.future);
-      final exchanges = await ref
-          .read(exchangeStoreProvider)
-          .all(chatIds: {for (final c in chats) c.id});
-      final groups = await grouper.group(
-        exchanges,
-        count: _count,
-        model: settings.generationModel,
-        groupChatIds: {
-          for (final c in chats)
-            if (c.isGroup) c.id,
-        },
-      );
-      final map = GroupMap.of(groups);
-      final timeline = TopicTimeline.of(groups);
-      final chatIds = {for (final c in chats) c.id};
-      final now = DateTime.now();
-      if (groups.isNotEmpty) {
-        await ref
-            .read(groupingsStoreProvider)
-            .save(
-              SavedGrouping.of(
-                groups,
-                count: _count,
-                chatIds: chatIds,
-                at: now,
-              ),
+    final store = ref.read(exchangeStoreProvider);
+    final saved = ref.read(groupingsStoreProvider);
+    final settingsFuture = ref.read(settingsProvider.future);
+    final count = _count;
+    final chatIds = {for (final c in chats) c.id};
+    final groupChatIds = {
+      for (final c in chats)
+        if (c.isGroup) c.id,
+    };
+    ref
+        .read(taskCenterProvider.notifier)
+        .start(
+          id: _taskId,
+          title: 'Grouping your chats',
+          detail: 'Into $count groups',
+          work: (task) async {
+            final settings = await settingsFuture;
+            final exchanges = await store.all(chatIds: chatIds);
+            task.check();
+            final groups = await grouper.group(
+              exchanges,
+              count: count,
+              model: settings.generationModel,
+              groupChatIds: groupChatIds,
+              onStage: (stage) => task
+                ..check()
+                ..report(detail: stage),
             );
-      }
-      if (mounted) {
-        setState(() {
-          _groups = groups;
-          _map = map;
-          _timeline = timeline;
-          _madeAt = now;
-          _madeFrom = chatIds;
-        });
-      }
-    } on Object catch (error) {
-      if (mounted) setState(() => _error = error);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+            task.check();
+            if (groups.isNotEmpty) {
+              await saved.save(
+                SavedGrouping.of(groups, count: count, chatIds: chatIds),
+              );
+            }
+            return null;
+          },
+        );
   }
 
   @override
@@ -171,6 +164,20 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
     final chats = ref.watch(chatsProvider);
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
     final hasKey = ref.watch(chatGrouperProvider) != null;
+    final task = ref
+        .watch(taskCenterProvider)
+        .where((t) => t.id == _taskId)
+        .firstOrNull;
+    final busy = task?.running ?? false;
+    // Grouping finished while this screen was open: show the result.
+    ref.listen(taskCenterProvider, (before, now) {
+      final was = before?.where((t) => t.id == _taskId).firstOrNull;
+      final current = now.where((t) => t.id == _taskId).firstOrNull;
+      if (current?.status == TaskStatus.done &&
+          was?.status != TaskStatus.done) {
+        _restore();
+      }
+    });
 
     return PaperScreen(
       children: [
@@ -216,17 +223,24 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                 max: ChatGrouper.maxGroups,
                 onChanged: (v) => setState(() => _count = v),
               ),
-              PaperAction(
-                title: groups == null ? 'Group my chats' : 'Group again',
-                subtitle: hasKey
-                    ? 'Into $_count groups, named by ${settings.generationModel}'
-                    : 'Add your OpenAI key in Settings first',
-                tone: groups == null ? ActionTone.accent : ActionTone.outline,
-                busy: _busy,
-                onTap: hasKey ? () => _run(source) : null,
-              ),
-              if (_error != null)
-                FailureNotice(error: _error!, onRetry: () => _run(source)),
+              if (busy)
+                BackgroundJobCard(
+                  task: task!,
+                  onStop: () =>
+                      ref.read(taskCenterProvider.notifier).cancel(_taskId),
+                )
+              else
+                PaperAction(
+                  title: groups == null ? 'Group my chats' : 'Group again',
+                  subtitle: hasKey
+                      ? 'Into $_count groups, named by '
+                            '${settings.generationModel}'
+                      : 'Add your OpenAI key in Settings first',
+                  tone: groups == null ? ActionTone.accent : ActionTone.outline,
+                  onTap: hasKey ? () => _run(source) : null,
+                ),
+              if (task != null && task.status == TaskStatus.failed)
+                FailureNotice(error: task.error!, onRetry: () => _run(source)),
               if (groups != null && groups.isEmpty)
                 const Notice('No replies with fingerprints to group.'),
               if (_loading && groups == null)

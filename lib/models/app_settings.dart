@@ -21,6 +21,7 @@ class AppSettings {
     this.mode = TrainingMode.styleMemory,
     this.contextTurns = defaultContextTurns,
     this.retrievedExampleCount = defaultRetrievedExampleCount,
+    this.searchResultCount = defaultSearchResultCount,
     this.variantCount = defaultVariantCount,
     this.myName = '',
     this.theirName = '',
@@ -80,6 +81,7 @@ class AppSettings {
 
   static const int defaultContextTurns = 10;
   static const int defaultRetrievedExampleCount = 8;
+  static const int defaultSearchResultCount = 25;
   static const int defaultVariantCount = 3;
 
   /// Suggested alternatives shown in Settings. Not a whitelist — any model id
@@ -107,6 +109,9 @@ class AppSettings {
 
   /// How many similar past exchanges to retrieve for each generation.
   final int retrievedExampleCount;
+
+  /// The most moments a search shows.
+  final int searchResultCount;
 
   /// How many reply options to offer.
   final int variantCount;
@@ -162,6 +167,7 @@ class AppSettings {
     TrainingMode? mode,
     int? contextTurns,
     int? retrievedExampleCount,
+    int? searchResultCount,
     int? variantCount,
     String? myName,
     String? theirName,
@@ -181,6 +187,7 @@ class AppSettings {
     mode: mode ?? this.mode,
     contextTurns: contextTurns ?? this.contextTurns,
     retrievedExampleCount: retrievedExampleCount ?? this.retrievedExampleCount,
+    searchResultCount: searchResultCount ?? this.searchResultCount,
     variantCount: variantCount ?? this.variantCount,
     myName: myName ?? this.myName,
     theirName: theirName ?? this.theirName,
@@ -207,6 +214,7 @@ class AppSettings {
     'mode': mode.name,
     'contextTurns': contextTurns,
     'retrievedExampleCount': retrievedExampleCount,
+    'searchResultCount': searchResultCount,
     'variantCount': variantCount,
     'myName': myName,
     'theirName': theirName,
@@ -248,6 +256,7 @@ class AppSettings {
         'retrievedExampleCount',
         defaultRetrievedExampleCount,
       ),
+      searchResultCount: integer('searchResultCount', defaultSearchResultCount),
       variantCount: integer('variantCount', defaultVariantCount),
       myName: str('myName', ''),
       theirName: str('theirName', ''),

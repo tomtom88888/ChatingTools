@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'screens/root_screen.dart';
+import 'state/app_activity.dart';
 import 'theme/tokens.dart';
+import 'widgets/task_tray.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +25,9 @@ class _DittoAppState extends State<DittoApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Start noticing when the app is sent away, so requests in flight can
+    // wait for it to come back rather than fail.
+    AppActivity.instance;
   }
 
   @override
@@ -58,6 +63,8 @@ class _DittoAppState extends State<DittoApp> with WidgetsBindingObserver {
       title: 'Ditto',
       debugShowCheckedModeBanner: false,
       theme: _theme(),
+      // Long jobs show under every screen, whichever is open.
+      builder: (context, child) => TaskTrayFrame(child: child!),
       home: const RootScreen(),
     );
   }

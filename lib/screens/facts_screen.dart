@@ -5,7 +5,9 @@ import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../services/chat_facts.dart';
 import '../state/providers.dart';
+import '../state/tasks.dart';
 import '../theme/tokens.dart';
+import '../widgets/background_job_card.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
@@ -23,9 +25,6 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
   int? _chatId;
   Map<int, SavedFacts> _saved = const {};
   bool _loading = true;
-  bool _busy = false;
-  (int, int)? _progress;
-  Object? _error;
 
   @override
   void initState() {
@@ -45,42 +44,53 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
   static String _them(ChatMemory chat) =>
       chat.theirName.isEmpty ? 'them' : chat.theirName;
 
-  Future<void> _find(ChatMemory chat) async {
+  static String _taskId(ChatMemory chat) => 'facts-${chat.id}';
+
+  /// Starts reading [chat] as a background job: it keeps going if this
+  /// screen is left, and only Stop ends it.
+  void _find(ChatMemory chat) {
     final finder = ref.read(chatFactsProvider);
     if (finder == null) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-      _progress = null;
-    });
-    try {
-      final settings = await ref.read(settingsProvider.future);
-      final exchanges = await ref
-          .read(exchangeStoreProvider)
-          .all(chatIds: {chat.id});
-      final facts = await finder.find(
-        exchanges,
-        myName: chat.myName,
-        them: chat.theirName,
-        model: settings.generationModel,
-        group: chat.isGroup,
-        onProgress: (done, of) {
-          if (mounted) setState(() => _progress = (done, of));
-        },
-      );
-      final saved = SavedFacts(at: DateTime.now(), facts: facts);
-      await ref.read(factsStoreProvider).save(chat.id, saved);
-      if (mounted) setState(() => _saved = {..._saved, chat.id: saved});
-    } on Object catch (error) {
-      if (mounted) setState(() => _error = error);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _progress = null;
-        });
-      }
-    }
+    final store = ref.read(exchangeStoreProvider);
+    final facts = ref.read(factsStoreProvider);
+    final settingsFuture = ref.read(settingsProvider.future);
+    ref
+        .read(taskCenterProvider.notifier)
+        .start(
+          id: _taskId(chat),
+          title: 'Remembering ${_them(chat)}',
+          detail: 'Reading what ${_them(chat)} wrote',
+          work: (task) async {
+            final settings = await settingsFuture;
+            final exchanges = await store.all(chatIds: {chat.id});
+            task.check();
+            final found = await finder.find(
+              exchanges,
+              myName: chat.myName,
+              them: chat.theirName,
+              model: settings.generationModel,
+              group: chat.isGroup,
+              onProgress: (done, of) {
+                task
+                  ..check()
+                  ..report(
+                    detail: of <= 1
+                        ? 'Picking out what is worth remembering'
+                        : done < of
+                        ? 'Part ${done + 1} of $of'
+                        : 'Merging what was found',
+                    progress: of == 0 ? null : done / of,
+                  );
+              },
+            );
+            task.check();
+            await facts.save(
+              chat.id,
+              SavedFacts(at: DateTime.now(), facts: found),
+            );
+            return null;
+          },
+        );
   }
 
   Future<void> _forget(ChatMemory chat, ChatFact fact) async {
@@ -96,6 +106,16 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
     final chats = ref.watch(chatsProvider);
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
     final hasKey = ref.watch(chatFactsProvider) != null;
+    final tasks = ref.watch(taskCenterProvider);
+    // A job that finished while this screen was open: show what it found.
+    ref.listen(taskCenterProvider, (before, now) {
+      for (final t in now) {
+        if (t.id.startsWith('facts-') && t.status == TaskStatus.done) {
+          final was = before?.where((b) => b.id == t.id).firstOrNull;
+          if (was?.status != TaskStatus.done) _load();
+        }
+      }
+    });
 
     return PaperScreen(
       children: [
@@ -126,6 +146,8 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
             );
             final them = _them(chat);
             final saved = _saved[chat.id];
+            final task = tasks.where((t) => t.id == _taskId(chat)).firstOrNull;
+            final busy = task?.running ?? false;
             return [
               SerifTitle(
                 'What to remember about ',
@@ -137,12 +159,7 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
                 _ChatPills(
                   chats: learned,
                   selected: chat.id,
-                  onPick: _busy
-                      ? null
-                      : (id) => setState(() {
-                          _chatId = id;
-                          _error = null;
-                        }),
+                  onPick: (id) => setState(() => _chatId = id),
                 ),
               Text(
                 'Reads what ${bidiIsolate(them)} wrote and picks out things '
@@ -153,8 +170,14 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
                 style: Type.prose(size: 14, color: Paper.body, height: 1.45),
               ),
               if (_loading) const LinearProgressIndicator(minHeight: 3),
-              if (_busy) _Progress(progress: _progress),
-              if (!_busy)
+              if (busy)
+                BackgroundJobCard(
+                  task: task!,
+                  onStop: () => ref
+                      .read(taskCenterProvider.notifier)
+                      .cancel(_taskId(chat)),
+                ),
+              if (!busy)
                 PaperAction(
                   title: saved == null
                       ? 'Find things to remember'
@@ -166,8 +189,8 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
                   tone: saved == null ? ActionTone.accent : ActionTone.outline,
                   onTap: hasKey ? () => _find(chat) : null,
                 ),
-              if (_error != null)
-                FailureNotice(error: _error!, onRetry: () => _find(chat)),
+              if (task != null && task.status == TaskStatus.failed)
+                FailureNotice(error: task.error!, onRetry: () => _find(chat)),
               if (saved != null && saved.facts.isEmpty)
                 Notice(
                   'Nothing stood out in what ${bidiIsolate(them)} wrote. A '
@@ -195,42 +218,6 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
           'Kept on this phone. Forgetting a chat forgets these too.',
         ),
       ],
-    );
-  }
-}
-
-class _Progress extends StatelessWidget {
-  const _Progress({required this.progress});
-
-  final (int, int)? progress;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = progress;
-    return PaperPanel(
-      padding: const EdgeInsets.fromLTRB(15, 15, 15, 15),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const MonoLabel('Reading the chat', spacing: 0.12),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: Corner.all(Corner.pill),
-            child: LinearProgressIndicator(
-              minHeight: 4,
-              value: p == null || p.$2 == 0 ? null : p.$1 / p.$2,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            p == null || p.$2 <= 1
-                ? 'Picking out what is worth remembering.'
-                : 'Part ${(p.$1 + 1).clamp(1, p.$2)} of ${p.$2}. A long chat '
-                      'is read in parts, then the findings are merged.',
-            style: Type.prose(size: 13, color: Paper.body, height: 1.45),
-          ),
-        ],
-      ),
     );
   }
 }

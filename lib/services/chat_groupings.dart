@@ -197,7 +197,9 @@ class ChatGrouper {
     required int count,
     required String model,
     Set<int> groupChatIds = const {},
+    void Function(String stage)? onStage,
   }) async {
+    onStage?.call('Grouping ${exchanges.length} replies');
     final usable = _sameLength(exchanges);
     if (usable.isEmpty) return const [];
     final vectors = [for (final e in usable) e.vector];
@@ -209,6 +211,7 @@ class ChatGrouper {
         : KMeans.assign(vectors, k);
 
     final groups = arrange(usable, assignment);
+    onStage?.call('Naming ${groups.length} groups');
     return name(groups, model: model, groupChatIds: groupChatIds);
   }
 

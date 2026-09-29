@@ -382,6 +382,14 @@ void main() {
       store: store,
       openai: fake(embed: (_) => [1, 0]),
     );
+    // The box grows with what is typed, a line at a time.
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('search-field')),
+    );
+    expect((field.minLines, field.maxLines), (1, 6));
+    expect(find.text('Moments to show'), findsOneWidget);
+    expect(find.text('25'), findsOneWidget, reason: 'the default');
+
     await tester.enterText(
       find.byKey(const ValueKey('search-field')),
       'the ramen place',
