@@ -451,17 +451,22 @@ class _Legend extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 8,
-          height: 8,
+          width: 12,
+          height: 12,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: Corner.all(const Radius.circular(2)),
+            borderRadius: Corner.all(const Radius.circular(3)),
           ),
         ),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: Type.prose(size: 12, color: Paper.secondary, height: 1.2),
+        const SizedBox(width: 6),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 110),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Type.strong(size: 13, color: Paper.ink, height: 1.2),
+          ),
         ),
       ],
     );
@@ -469,7 +474,7 @@ class _Legend extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         key(Paper.ink, 'You'),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         key(Paper.accent, bidiIsolate(them)),
       ],
     );
@@ -599,12 +604,26 @@ class _DuelRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final top = duel.mine > duel.theirs ? duel.mine : duel.theirs;
 
+    // Each bar says whose it is, so the colours never have to be decoded.
     Widget bar(double value, Color color, String text, String semantic) =>
         Semantics(
           label: '$semantic: $text',
           excludeSemantics: true,
           child: Row(
             children: [
+              SizedBox(
+                width: 46,
+                child: Text(
+                  semantic == 'You' ? 'You' : bidiIsolate(semantic),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.strong(
+                    size: 12,
+                    color: semantic == 'You' ? Paper.ink : Paper.accent,
+                    height: 1.2,
+                  ),
+                ),
+              ),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -618,7 +637,7 @@ class _DuelRow extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       child: Container(
                         width: width,
-                        height: 6,
+                        height: 8,
                         decoration: BoxDecoration(
                           color: color,
                           borderRadius: const BorderRadius.horizontal(
@@ -632,7 +651,7 @@ class _DuelRow extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               SizedBox(
-                width: 104,
+                width: 88,
                 child: Text(
                   text,
                   textAlign: TextAlign.end,
