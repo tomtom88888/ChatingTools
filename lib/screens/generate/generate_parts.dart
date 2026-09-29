@@ -67,7 +67,8 @@ class GenerateHeader extends StatelessWidget {
   );
 }
 
-/// Chooses who the reply is to, among the ticked chats — or someone new.
+/// Chooses who the reply is to, among the learned chats — or someone new —
+/// and whether it may also borrow from the other chats.
 ///
 /// Returns the chosen chat, `null` for "someone else", or nothing if
 /// dismissed; callers tell the last two apart with the record's flag.
@@ -75,6 +76,8 @@ Future<({ChatMemory? chat})?> pickReplyChat(
   BuildContext context, {
   required List<ChatMemory> chats,
   required ChatMemory? current,
+  required bool useAllChats,
+  required ValueChanged<bool> onUseAllChats,
 }) => showModalBottomSheet<({ChatMemory? chat})>(
   context: context,
   backgroundColor: Paper.bg,
@@ -99,15 +102,57 @@ Future<({ChatMemory? chat})?> pickReplyChat(
             ),
           _ChoiceRow(
             title: 'Someone else',
-            subtitle: 'Still written in your voice, from the ticked chats',
+            subtitle: 'Written in your voice, from all your chats',
             selected: current == null,
             onTap: () => Navigator.of(context).pop((chat: null)),
           ),
+          if (chats.length > 1) ...[
+            const SizedBox(height: 6),
+            Divider(height: 1, color: Paper.divider),
+            _AllChatsSwitch(value: useAllChats, onChanged: onUseAllChats),
+          ],
         ],
       ),
     ),
   ),
 );
+
+/// Whether a reply to one person also borrows from the other chats.
+class _AllChatsSwitch extends StatefulWidget {
+  const _AllChatsSwitch({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  State<_AllChatsSwitch> createState() => _AllChatsSwitchState();
+}
+
+class _AllChatsSwitchState extends State<_AllChatsSwitch> {
+  late bool _on = widget.value;
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    key: const ValueKey('use-all-chats'),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+    value: _on,
+    activeThumbColor: Paper.accent,
+    title: Text(
+      'Also learn from my other chats',
+      style: Type.strong(size: 15, height: 1.3),
+    ),
+    subtitle: Text(
+      _on
+          ? 'More examples, less like how you text this person'
+          : 'Only your chat with this person',
+      style: Type.prose(size: 12.5, color: Paper.muted, height: 1.3),
+    ),
+    onChanged: (on) {
+      setState(() => _on = on);
+      widget.onChanged(on);
+    },
+  );
+}
 
 class _ChoiceRow extends StatelessWidget {
   const _ChoiceRow({

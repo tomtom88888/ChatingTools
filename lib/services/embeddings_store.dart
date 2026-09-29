@@ -37,7 +37,7 @@ class SqfliteExchangeStore implements ExchangeStore {
   ///     feedback log.
   /// v3: each chat's numbers for the chat data screen.
   /// v4: whether a chat is a group chat.
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   Database? _database;
   final Map<int, List<StoredExchange>> _cache = {};
@@ -61,6 +61,7 @@ class SqfliteExchangeStore implements ExchangeStore {
           if (from < 3) await _upgradeToV3(db);
           if (from < 4) await _upgradeToV4(db);
           if (from < 5) await _upgradeToV5(db);
+          if (from < 6) await _upgradeToV6(db);
         },
       ),
     );
@@ -108,6 +109,15 @@ class SqfliteExchangeStore implements ExchangeStore {
     if (version >= 4) await _upgradeToV4(db);
     if (version >= 5) await _upgradeToV5(db);
   }
+
+  /// Finds the Instagram chats imported before the app was recorded.
+  /// Instagram stamps messages to the millisecond; a WhatsApp export never
+  /// has more than whole seconds.
+  static Future<void> _upgradeToV6(DatabaseExecutor db) => db.execute(
+    "UPDATE chats SET app = 'instagram' WHERE app = 'whatsapp' AND id IN "
+    "(SELECT chat_id FROM exchanges WHERE source = 'export' AND ts IS NOT "
+    'NULL AND ts % 1000 != 0)',
+  );
 
   /// Records which app each chat came from. Every chat learned before this
   /// came from WhatsApp.

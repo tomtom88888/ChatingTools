@@ -429,21 +429,18 @@ void main() {
       return (service, store);
     }
 
-    test('only ticked chats are searched', () async {
-      final (service, store) = await twoChats();
-      final boss = (await store.chats()).last;
-      await store.setChatEnabled(boss.id, enabled: false);
-
+    test('every chat is searched when none are named', () async {
+      final (service, _) = await twoChats();
       final hits = await service.retrieve(
         context: [turn('Alex', 'hi')],
         embeddingModel: 'text-embedding-3-small',
         dimensions: 2,
         limit: 8,
       );
-      expect(hits.examples.map((e) => e.exchange.replyText), ['hey babe']);
+      expect(hits.examples, hasLength(2));
     });
 
-    test('explicit chat ids override the ticks', () async {
+    test('named chat ids limit the search', () async {
       final (service, store) = await twoChats();
       final boss = (await store.chats()).last;
       final hits = await service.retrieve(

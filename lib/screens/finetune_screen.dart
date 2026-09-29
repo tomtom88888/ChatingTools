@@ -60,13 +60,10 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
     });
     try {
       final settings = await ref.read(settingsProvider.future);
-      // The model learns from the chats that are switched on, each exchange
-      // carrying the names from its own chat.
+      // The model learns from every chat, each exchange carrying the names
+      // from its own chat.
       final chats = await ref.read(chatsProvider.future);
-      final enabled = {
-        for (final chat in chats)
-          if (chat.enabled) chat.id: chat,
-      };
+      final enabled = {for (final chat in chats) chat.id: chat};
       final exchanges = await ref
           .read(exchangeStoreProvider)
           .all(chatIds: enabled.keys.toSet());

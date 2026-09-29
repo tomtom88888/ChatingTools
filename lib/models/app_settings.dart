@@ -25,6 +25,7 @@ class AppSettings {
     this.retrievedExampleCount = defaultRetrievedExampleCount,
     this.searchResultCount = defaultSearchResultCount,
     this.variantCount = defaultVariantCount,
+    this.useAllChats = false,
     this.myName = '',
     this.theirName = '',
     this.fineTunedModel,
@@ -167,6 +168,10 @@ class AppSettings {
   /// How many reply options to offer.
   final int variantCount;
 
+  /// Whether a reply to someone also borrows from your chats with everyone
+  /// else, not only from the chat with them.
+  final bool useAllChats;
+
   /// Your name as it appears in the most recent export.
   final String myName;
 
@@ -245,6 +250,7 @@ class AppSettings {
     int? retrievedExampleCount,
     int? searchResultCount,
     int? variantCount,
+    bool? useAllChats,
     String? myName,
     String? theirName,
     String? fineTunedModel,
@@ -265,6 +271,7 @@ class AppSettings {
     retrievedExampleCount: retrievedExampleCount ?? this.retrievedExampleCount,
     searchResultCount: searchResultCount ?? this.searchResultCount,
     variantCount: variantCount ?? this.variantCount,
+    useAllChats: useAllChats ?? this.useAllChats,
     myName: myName ?? this.myName,
     theirName: theirName ?? this.theirName,
     fineTunedModel: clearFineTunedModel
@@ -292,6 +299,7 @@ class AppSettings {
     'retrievedExampleCount': retrievedExampleCount,
     'searchResultCount': searchResultCount,
     'variantCount': variantCount,
+    'useAllChats': useAllChats,
     'myName': myName,
     'theirName': theirName,
     'fineTunedModel': fineTunedModel,
@@ -334,6 +342,7 @@ class AppSettings {
       ),
       searchResultCount: integer('searchResultCount', defaultSearchResultCount),
       variantCount: integer('variantCount', defaultVariantCount),
+      useAllChats: json['useAllChats'] == true,
       myName: str('myName', ''),
       theirName: str('theirName', ''),
       fineTunedModel: json['fineTunedModel'] as String?,

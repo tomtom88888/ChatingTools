@@ -247,6 +247,47 @@ void main() {
     await store.close();
   });
 
+  test(
+    'an Instagram chat from before v5 is recognised by its timestamps',
+    () async {
+      final path = p.join(dir.path, 'replylikeme_style_memory.db');
+      final v4 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, v) =>
+              SqfliteExchangeStore.createSchema(db, version: 4),
+        ),
+      );
+      Future<int> addChat(String them) => v4.insert('chats', {
+        'my_name': 'Robin',
+        'their_name': them,
+        'embedding_model': 'text-embedding-3-small',
+        'dimensions': 2,
+        'built_at': 0,
+      });
+      Future<void> addRow(int chatId, int ts) => v4.insert('exchanges', {
+        'chat_id': chatId,
+        'hash': '$chatId-$ts',
+        'context_json': '[]',
+        'context_text': '',
+        'reply': 'x',
+        'ts': ts,
+        'vector': Uint8List(8),
+      });
+      final wa = await addChat('Sam');
+      final ig = await addChat('Maya');
+      await addRow(wa, 1700000040000);
+      await addRow(ig, 1700000040123);
+      await v4.close();
+
+      final store = open();
+      final chats = {for (final c in await store.chats()) c.theirName: c.app};
+      expect(chats, {'Sam': ChatApp.whatsapp, 'Maya': ChatApp.instagram});
+      await store.close();
+    },
+  );
+
   test('remembers which app a chat came from', () async {
     final store = open();
     await store.saveChat(

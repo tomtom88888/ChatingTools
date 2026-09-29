@@ -34,7 +34,15 @@ import 'retrieved_exchanges_screen.dart';
 /// Pick a screenshot (or paste the chat), check what was read, take one of
 /// the suggested replies.
 class GenerateScreen extends ConsumerStatefulWidget {
-  const GenerateScreen({this.sharedScreenshot, this.pickImages, super.key});
+  const GenerateScreen({
+    this.sharedScreenshot,
+    this.pickImages,
+    this.chat,
+    super.key,
+  });
+
+  /// Who the reply is to, when opened from their chat on the home screen.
+  final ChatMemory? chat;
 
   /// Set when a screenshot was shared into the app.
   final SharedScreenshot? sharedScreenshot;
@@ -61,7 +69,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   List<ExtractedMessage> _messages = [];
 
   /// Who this reply is to. `null` means someone the app has no chat for: the
-  /// voice still comes from the ticked chats.
+  /// voice then comes from every chat.
   ChatMemory? _replyingTo;
   bool _choseChat = false;
 
@@ -131,21 +139,46 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
 
   // ------------------------------------------------------------------ chats
 
-  /// The ticked chats, and who the reply is to unless you picked otherwise.
+  /// Every learned chat, and who the reply is to unless you picked
+  /// otherwise.
   List<ChatMemory> _enabledChats() {
     final chats = ref.read(chatsProvider).value ?? const <ChatMemory>[];
-    return chats.where((c) => c.enabled && !c.isEmpty).toList();
+    return chats.where((c) => !c.isEmpty).toList();
   }
 
-  ChatMemory? _defaultReplyingTo(List<ChatMemory> enabled) =>
-      enabled.isEmpty ? null : enabled.first;
+  ChatMemory? _defaultReplyingTo(List<ChatMemory> enabled) {
+    final opened = widget.chat;
+    if (opened != null) {
+      for (final c in enabled) {
+        if (c.id == opened.id) return c;
+      }
+    }
+    return enabled.isEmpty ? null : enabled.first;
+  }
+
+  /// The chats a reply learns from: the chat with the person being replied
+  /// to, or every chat when replying to someone new or when asked to.
+  static List<ChatMemory> _sources(
+    List<ChatMemory> chats,
+    ChatMemory? chat,
+    AppSettings settings,
+  ) => chat == null || settings.useAllChats ? chats : [chat];
 
   Future<void> _pickChat() async {
     final enabled = _enabledChats();
+    final settings = await ref.read(settingsProvider.future);
+    if (!mounted) return;
     final picked = await pickReplyChat(
       context,
       chats: enabled,
       current: _currentReplyingTo(enabled),
+      useAllChats: settings.useAllChats,
+      onUseAllChats: (on) {
+        ref
+            .read(settingsProvider.notifier)
+            .edit((s) => s.copyWith(useAllChats: on));
+        setState(_retireVariants);
+      },
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -356,9 +389,10 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     final memory = ref.read(styleMemoryServiceProvider);
     if (generator == null || memory == null) return;
     final settings = await ref.read(settingsProvider.future);
-    final enabled = _enabledChats();
-    final chat = _currentReplyingTo(enabled);
+    final chats = _enabledChats();
+    final chat = _currentReplyingTo(chats);
     final named = _named(settings, chat);
+    final enabled = _sources(chats, chat, settings);
 
     setState(() {
       _generating = true;
@@ -380,8 +414,8 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         preferChatId: chat?.id,
         queryTurns: named.contextTurns,
       );
-      // The chat being replied in speaks loudest; with no chat, all the
-      // ticked ones together.
+      // The chat being replied in speaks loudest; with no chat, all of them
+      // together.
       final profile = chat != null && !chat.profile.isEmpty
           ? chat.profile
           : StyleProfile.mergeAll(enabled.map((c) => c.profile));
@@ -620,7 +654,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
     final enabled = [
       for (final c in ref.watch(chatsProvider).value ?? const <ChatMemory>[])
-        if (c.enabled && !c.isEmpty) c,
+        if (!c.isEmpty) c,
     ];
     _lastEnabled = enabled;
     final chat = _currentReplyingTo(enabled);

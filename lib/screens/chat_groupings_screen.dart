@@ -77,8 +77,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
     }
   }
 
-  /// The ticked chats that match the current fingerprint settings; all
-  /// matching chats when none are ticked.
+  /// Every chat that matches the current fingerprint settings.
   static List<ChatMemory> _source(List<ChatMemory> all, AppSettings settings) {
     final usable = [
       for (final c in all)
@@ -86,8 +85,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
             c.matches(settings.embeddingModel, settings.embeddingDimensions))
           c,
     ];
-    final ticked = usable.where((c) => c.enabled).toList();
-    return ticked.isEmpty ? usable : ticked;
+    return usable;
   }
 
   /// A note when the groups on screen no longer cover what would be grouped
@@ -98,7 +96,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
     final available = source.fold(0, (sum, c) => sum + c.exchangeCount);
     final String? why;
     if (!now.containsAll(_madeFrom) || !_madeFrom.containsAll(now)) {
-      why = 'The chats ticked have changed since.';
+      why = 'Chats have been added or removed since.';
     } else if (available > grouped) {
       final added = available - grouped;
       why =

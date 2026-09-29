@@ -7,6 +7,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:replylikeme/models/ai_provider.dart';
 import 'package:replylikeme/main.dart';
 import 'package:replylikeme/models/app_settings.dart';
+import 'package:replylikeme/models/chat_app.dart';
 import 'package:replylikeme/models/chat_stats.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
@@ -262,38 +263,26 @@ void main() {
     expect(await store.chats(), isEmpty);
   });
 
-  testWidgets('each chat has a tick box that decides what is written from', (
-    tester,
-  ) async {
+  testWidgets('tapping a chat writes a reply to that person', (tester) async {
     final store = FakeStore(
       chats: [
         exampleChat(),
-        exampleChat(id: 2, them: 'Mum'),
+        exampleChat(id: 2, them: 'Mum').copyWith(app: ChatApp.instagram),
       ],
       rows: [exampleExchange(), exampleExchange(chatId: 2)],
     );
     await pumpApp(tester, apiKey: 'sk-test-0123456789abcdefghij', store: store);
 
-    expect(find.text('Chats it writes from'), findsOneWidget);
-    expect(find.byType(Checkbox), findsNWidgets(2));
+    expect(find.byType(Checkbox), findsNothing);
     expect(find.text('Sam & Mum'), findsWidgets);
-    expect(find.text('2 of 2 on'), findsOneWidget);
+    expect(find.textContaining('Instagram ·'), findsOneWidget);
+    expect(find.textContaining('WhatsApp ·'), findsOneWidget);
 
-    // Unticking one takes it out of the hero and out of the store's set.
     await tester.ensureVisible(find.byKey(const ValueKey('chat-2')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('chat-2')));
     await tester.pumpAndSettle();
-    expect(find.text('1 of 2 on'), findsOneWidget);
-    expect((await store.chats()).last.enabled, isFalse);
-
-    // With nothing ticked, writing is locked until something is.
-    await tester.ensureVisible(find.byKey(const ValueKey('chat-1')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('chat-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('Tick at least one chat above'), findsOneWidget);
-    expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+    expect(find.text('Replying to \u2068Mum\u2069'), findsOneWidget);
   });
 
   testWidgets('chat data asks for a re-import when a chat has no numbers', (

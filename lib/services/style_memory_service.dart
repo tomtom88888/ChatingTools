@@ -300,7 +300,7 @@ class StyleMemoryService {
   }
 
   /// Up to [limit] past exchanges like the conversation so far, drawn from
-  /// [chatIds] (every switched-on chat when omitted), leaning towards
+  /// [chatIds] (every chat when omitted), leaning towards
   /// [preferChatId]. Only the last [queryTurns] turns are searched with.
   Future<RetrievedExamples> retrieve({
     required List<ChatTurn> context,
@@ -313,7 +313,7 @@ class StyleMemoryService {
   }) async {
     final chats = await store.chats();
     final wanted = chats.where(
-      (c) => chatIds == null ? c.enabled : chatIds.contains(c.id),
+      (c) => chatIds == null || chatIds.contains(c.id),
     );
     final usable = <int>{};
     final skipped = <ChatMemory>[];

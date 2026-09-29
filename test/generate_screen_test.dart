@@ -404,4 +404,47 @@ void main() {
     expect(find.text('Sam'), findsWidgets);
     expect(find.text('Priya'), findsOneWidget);
   });
+
+  testWidgets('a reply learns only from the chat it is for, unless asked', (
+    tester,
+  ) async {
+    await store.saveChat(
+      ChatMemory(
+        id: 2,
+        myName: 'Robin',
+        theirName: 'Boss',
+        embeddingModel: AppSettings.defaultEmbeddingModel,
+        dimensions: AppSettings.defaultEmbeddingDimensions,
+        builtAt: DateTime(2026, 9, 1),
+      ),
+      added: [
+        StoredExchange(
+          id: -1,
+          chatId: 2,
+          context: const [
+            ChatTurn(sender: 'Boss', text: 'report?', messageCount: 1),
+          ],
+          contextText: 'Boss: report?',
+          replyText: 'on it, will send by 5',
+          vector: VectorMath.normalise(
+            List.filled(AppSettings.defaultEmbeddingDimensions, 1),
+          ),
+          timestamp: DateTime(2026, 2, 12),
+        ),
+      ],
+    );
+    await pump(tester);
+    await pasteAndWrite(tester);
+    expect(jsonEncode(chatBodies.last), isNot(contains('will send by 5')));
+
+    await tester.tap(find.textContaining('Replying to'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('use-all-chats')));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Write 3 replies'));
+    await tester.pumpAndSettle();
+    expect(jsonEncode(chatBodies.last), contains('will send by 5'));
+  });
 }

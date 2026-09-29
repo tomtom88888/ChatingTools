@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_settings.dart';
+import '../models/chat_app.dart';
 import '../models/stored_exchange.dart';
 import '../services/share_intake.dart';
 import '../state/providers.dart';
+import '../theme/bubbles.dart';
 import '../theme/tokens.dart';
 import '../widgets/export_guides.dart';
 import '../widgets/failure_text.dart';
@@ -142,7 +144,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       data: (all) {
         final learned = all.where((c) => !c.isEmpty).toList();
-        final enabled = learned.where((c) => c.enabled).toList();
+        final enabled = learned;
         final trained = learned.isNotEmpty;
         final stale = enabled
             .where(
@@ -167,9 +169,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   _KnowsYou(enabled: enabled),
                   _ChatList(
                     chats: learned,
-                    onToggle: (chat, on) => ref
-                        .read(chatsProvider.notifier)
-                        .setEnabled(chat.id, enabled: on),
+                    onOpen: (chat) => _push(GenerateScreen(chat: chat)),
                     onDelete: _confirmDelete,
                     onAdd: openTrain,
                   ),
@@ -277,9 +277,7 @@ class _KnowsYou extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            enabled.isEmpty
-                ? 'Tick a chat below to write from it'
-                : 'It knows how you write to',
+            'It knows how you write to',
             style: Type.prose(
               size: 15,
               color: Paper.onHero.withValues(alpha: 0.62),
@@ -288,9 +286,7 @@ class _KnowsYou extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            enabled.isEmpty
-                ? 'no one, for now'
-                : nameList([for (final c in enabled) c.theirName]),
+            nameList([for (final c in enabled) c.theirName]),
             style: Type.display(40, color: Paper.onHero),
           ),
           const SizedBox(height: 16),
@@ -320,18 +316,17 @@ class _KnowsYou extends StatelessWidget {
   }
 }
 
-/// Every learned chat, each with a tick box: ticked chats are the ones
-/// replies are written from.
+/// Every learned chat. Tapping one writes a reply to that person.
 class _ChatList extends StatelessWidget {
   const _ChatList({
     required this.chats,
-    required this.onToggle,
+    required this.onOpen,
     required this.onDelete,
     required this.onAdd,
   });
 
   final List<ChatMemory> chats;
-  final void Function(ChatMemory chat, bool enabled) onToggle;
+  final ValueChanged<ChatMemory> onOpen;
   final ValueChanged<ChatMemory> onDelete;
   final VoidCallback onAdd;
 
@@ -339,117 +334,100 @@ class _ChatList extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          const Expanded(child: MonoLabel('Chats it writes from')),
-          Text(
-            '${chats.where((c) => c.enabled).length} of ${chats.length} on',
-            style: Type.numeric(
-              size: 11.5,
-              color: Paper.muted,
-              weight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
+      const MonoLabel('Your chats · tap one to reply'),
       const SizedBox(height: 9),
       PaperCard(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (var i = 0; i < chats.length; i++)
+            for (final chat in chats)
               _ChatRow(
-                chat: chats[i],
-                onToggle: (on) => onToggle(chats[i], on),
-                onDelete: () => onDelete(chats[i]),
+                chat: chat,
+                onTap: () => onOpen(chat),
+                onDelete: () => onDelete(chat),
               ),
             _AddChatRow(onTap: onAdd),
           ],
         ),
       ),
-      const SizedBox(height: 7),
-      Text(
-        'Tick the chats that sound like the reply you want.',
-        style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
-      ),
     ],
   );
+}
+
+/// A round badge with the chat's initial, in its app's colours.
+class _ChatBadge extends StatelessWidget {
+  const _ChatBadge({required this.chat});
+
+  final ChatMemory chat;
+
+  @override
+  Widget build(BuildContext context) {
+    final bubbles = Bubbles.of(chat.app);
+    final name = chat.theirName.trim();
+    return Container(
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: bubbles.fill(mine: true).copyWith(shape: BoxShape.circle),
+      child: chat.isGroup
+          ? Icon(
+              Icons.groups_rounded,
+              size: 20,
+              color: bubbles.mineText,
+              semanticLabel: 'Group',
+            )
+          : Text(
+              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+              style: Type.strong(size: 16, color: bubbles.mineText),
+            ),
+    );
+  }
 }
 
 class _ChatRow extends StatelessWidget {
   const _ChatRow({
     required this.chat,
-    required this.onToggle,
+    required this.onTap,
     required this.onDelete,
   });
 
   final ChatMemory chat;
-  final ValueChanged<bool> onToggle;
+  final VoidCallback onTap;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final saved = chat.savedCount > 0 ? ' · ${chat.savedCount} starred' : '';
+    final app = chat.app == ChatApp.instagram ? 'Instagram' : 'WhatsApp';
     return InkWell(
       key: ValueKey('chat-${chat.id}'),
-      onTap: () => onToggle(!chat.enabled),
+      onTap: onTap,
       borderRadius: Corner.all(Corner.small),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(2, 8, 0, 8),
+        padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
         // Every chat row has a divider under it: the add row follows.
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Paper.divider)),
         ),
         child: Row(
           children: [
-            Checkbox(
-              value: chat.enabled,
-              onChanged: (on) => onToggle(on ?? false),
-              activeColor: Paper.accent,
-              checkColor: Paper.isDark ? Paper.onInk : Colors.white,
-              side: BorderSide(color: Paper.placeholder, width: 1.5),
-              shape: RoundedRectangleBorder(
-                borderRadius: Corner.all(const Radius.circular(5)),
-              ),
-            ),
-            const SizedBox(width: 4),
+            _ChatBadge(chat: chat),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      if (chat.isGroup) ...[
-                        Icon(
-                          Icons.groups_rounded,
-                          size: 17,
-                          color: chat.enabled ? Paper.accent : Paper.tertiary,
-                          semanticLabel: 'Group',
-                        ),
-                        const SizedBox(width: 5),
-                      ],
-                      Flexible(
-                        child: Text(
-                          chat.theirName.isEmpty
-                              ? 'Unnamed chat'
-                              : chat.theirName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Type.strong(
-                            size: 15,
-                            height: 1.3,
-                            color: chat.enabled ? Paper.ink : Paper.tertiary,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    chat.theirName.isEmpty ? 'Unnamed chat' : chat.theirName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.strong(size: 15, height: 1.3),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${grouped(chat.exchangeCount)} '
-                    '${chat.exchangeCount == 1 ? "reply" : "replies"}$saved · '
-                    '${dayMonth(chat.builtAt)}',
+                    '$app · ${grouped(chat.exchangeCount)} '
+                    '${chat.exchangeCount == 1 ? "reply" : "replies"}$saved',
                     style: Type.numeric(
                       size: 11.5,
                       color: Paper.muted,
@@ -849,9 +827,7 @@ class _Actions extends StatelessWidget {
       title: 'Write a reply',
       subtitle: !trained
           ? 'Nothing learned yet — teach it first'
-          : anyEnabled
-          ? 'From a screenshot or pasted chat'
-          : 'Tick at least one chat above',
+          : 'From a screenshot or pasted chat',
       tone: ActionTone.accent,
       onTap: onGenerate,
       trailing: locked
