@@ -46,6 +46,24 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
 
   static String _taskId(ChatMemory chat) => 'facts-${chat.id}';
 
+  /// The chat to open on when none is picked: one being read now, else the
+  /// one read most recently, so coming back shows what was just found.
+  int? _lastUsed(List<ChatMemory> chats, List<BackgroundTask> tasks) {
+    for (final c in chats) {
+      if (tasks.any((t) => t.id == _taskId(c))) return c.id;
+    }
+    int? newest;
+    DateTime? at;
+    for (final c in chats) {
+      final saved = _saved[c.id];
+      if (saved != null && (at == null || saved.at.isAfter(at))) {
+        newest = c.id;
+        at = saved.at;
+      }
+    }
+    return newest;
+  }
+
   /// Starts reading [chat] as a background job: it keeps going if this
   /// screen is left, and only Stop ends it.
   void _find(ChatMemory chat) {
@@ -135,7 +153,7 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
               ];
             }
             final chat = learned.firstWhere(
-              (c) => c.id == _chatId,
+              (c) => c.id == (_chatId ?? _lastUsed(learned, tasks)),
               orElse: () => learned.first,
             );
             final them = _them(chat);

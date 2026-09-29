@@ -34,6 +34,9 @@ class KeepAwake {
   bool _initialised = false;
   bool _askedToNotify = false;
 
+  /// Whether the service is up, so the app keeps running out of sight.
+  bool get running => _running;
+
   /// What the notification says.
   String _text = 'Working…';
 

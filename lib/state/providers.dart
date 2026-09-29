@@ -126,7 +126,11 @@ final openAiServiceProvider = Provider<OpenAiService?>((ref) {
     // Android is asked to keep the app running while a request is out, and
     // one the phone cuts off anyway waits for the app to come back.
     interruptions: () => AppActivity.instance.interruptions,
-    whenActive: () => AppActivity.instance.whenActive(),
+    // Kept alive by the service, a dropped connection is simply tried again
+    // after a moment; otherwise it waits for the app to be back in front.
+    whenActive: () => KeepAwake.instance.running
+        ? Future<void>.delayed(const Duration(seconds: 2))
+        : AppActivity.instance.whenActive(),
     keepAlive: KeepAwake.instance.during,
   );
   ref.onDispose(service.close);

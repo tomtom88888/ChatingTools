@@ -37,7 +37,7 @@ class OpenAiService {
     this.baseUrl = 'https://api.openai.com/v1',
     this.anthropicBaseUrl = 'https://api.anthropic.com/v1',
     this.geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta',
-    this.requestTimeout = const Duration(seconds: 60),
+    this.requestTimeout = const Duration(seconds: 90),
     this.visionTimeout = const Duration(seconds: 120),
     this.thinkingTimeout = const Duration(minutes: 3),
     this.maxRetries = 3,

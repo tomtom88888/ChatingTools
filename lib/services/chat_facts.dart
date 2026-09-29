@@ -158,6 +158,8 @@ class ChatFacts {
         jsonMode: true,
         temperature: 0.2,
         usageKind: UsageKind.generation,
+        // A long stretch of chat to read: give it time.
+        timeout: const Duration(minutes: 3),
       );
       found.addAll(parse(raw));
       onProgress?.call(i + 1, steps);
@@ -180,6 +182,7 @@ class ChatFacts {
       jsonMode: true,
       temperature: 0.2,
       usageKind: UsageKind.generation,
+      timeout: const Duration(minutes: 3),
     );
     onProgress?.call(steps, steps);
     final merged = parse(raw);

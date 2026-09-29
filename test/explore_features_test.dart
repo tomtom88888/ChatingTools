@@ -460,6 +460,36 @@ void main() {
     expect(find.text('Look through the chat again'), findsOneWidget);
     expect(sent, hasLength(1));
   });
+
+  testWidgets('remember opens on the chat it last read, not the first', (
+    tester,
+  ) async {
+    final store = MemoryExchangeStore(
+      chats: [
+        chat(),
+        chat(id: 2, them: 'Noa'),
+      ],
+      rows: [
+        exchange(context: [turn('Maya', 'hi')]),
+        exchange(
+          chatId: 2,
+          context: [turn('Noa', 'I start at the bank monday')],
+        ),
+      ],
+    );
+    await const FactsStore().save(
+      2,
+      SavedFacts(
+        at: DateTime(2026, 9, 20),
+        facts: const [
+          ChatFact(text: 'Starts a bank job', category: 'Work & study'),
+        ],
+      ),
+    );
+    final openai = fake(sent: [], answer: (_) => '{"facts": []}');
+    await pump(tester, const FactsScreen(), store: store, openai: openai);
+    expect(find.text('Starts a bank job'), findsOneWidget);
+  });
 }
 
 class _Settings extends SettingsNotifier {
