@@ -8,6 +8,7 @@ import '../services/chat_groupings.dart';
 import '../services/embeddings_store.dart';
 import '../services/exchange_store.dart';
 import '../services/finetune_service.dart';
+import '../services/groupings_store.dart';
 import '../services/openai_service.dart';
 import '../services/reply_generator.dart';
 import '../services/secure_key_store.dart';
@@ -26,6 +27,10 @@ final settingsStoreProvider = Provider<SettingsStore>(
 );
 
 final usageStoreProvider = Provider<UsageStore>((ref) => const UsageStore());
+
+final groupingsStoreProvider = Provider<GroupingsStore>(
+  (ref) => const GroupingsStore(),
+);
 
 /// Typed as the interface so tests can substitute an in-memory store.
 final exchangeStoreProvider = Provider<ExchangeStore>((ref) {
@@ -213,6 +218,7 @@ class DataWiper {
     await _ref.read(exchangeStoreProvider).deleteEverything();
     await _ref.read(settingsStoreProvider).clear();
     await _ref.read(usageStoreProvider).clear();
+    await _ref.read(groupingsStoreProvider).clear();
     if (includeApiKey) await _ref.read(apiKeyProvider.notifier).clear();
     _ref.invalidate(settingsProvider);
     _ref.invalidate(exchangeStoreProvider);

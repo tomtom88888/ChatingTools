@@ -11,6 +11,7 @@ import 'package:replylikeme/main.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/services/chat_groupings.dart';
+import 'package:replylikeme/services/groupings_store.dart';
 import 'package:replylikeme/services/openai_service.dart';
 import 'package:replylikeme/services/vector_math.dart';
 import 'package:replylikeme/state/providers.dart';
@@ -312,6 +313,97 @@ void main() {
       find.text('Tap a dot or a name to pick out a group'),
       findsOneWidget,
     );
+
+    // Leave and come back: the same groups, read back, with no new call.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Nights out'), findsNothing);
+    await tester.tap(find.text('Chat groupings'));
+    await tester.pumpAndSettle();
+    expect(sent, hasLength(1), reason: 'not named again');
+    expect(find.text('Nights out'), findsNWidgets(2));
+    expect(find.text('Plans for the pub.'), findsOneWidget);
+    expect(find.text('The map'), findsOneWidget);
+    expect(find.text('Group again'), findsOneWidget);
+    expect(
+      find.textContaining('Into 2 groups'),
+      findsOneWidget,
+      reason: 'the count asked for',
+    );
+    expect(find.textContaining('Grouped on'), findsOneWidget);
+    expect(find.textContaining('added since'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('SavedGrouping', () {
+    StoredExchange stored(String hash, {int id = 1}) => StoredExchange(
+      id: id,
+      chatId: 1,
+      context: const [],
+      contextText: '',
+      replyText: 'r $hash',
+      vector: near(0),
+      hash: hash,
+    );
+
+    test('round-trips, and reads members back by fingerprint', () {
+      final groups = [
+        ChatGroup(
+          name: 'Pub',
+          about: 'Drinks.',
+          members: [stored('a'), stored('b')],
+        ),
+        ChatGroup(name: 'Work', about: '', members: [stored('c')]),
+      ];
+      final saved = SavedGrouping.decode(
+        SavedGrouping.of(
+          groups,
+          count: 2,
+          chatIds: {1, 4},
+          at: DateTime(2026, 9, 29, 10),
+        ).encode(),
+      )!;
+      expect(saved.count, 2);
+      expect(saved.chatIds, {1, 4});
+      expect(saved.at, DateTime(2026, 9, 29, 10));
+      expect(saved.replies, 3);
+
+      // Re-imported since, so the row ids changed; the fingerprints did not.
+      final back = saved.resolve([
+        stored('b', id: 20),
+        stored('a', id: 21),
+        stored('c', id: 22),
+      ]);
+      expect(back.map((g) => g.name), ['Pub', 'Work']);
+      expect(back.first.about, 'Drinks.');
+      expect(back.first.members.map((m) => m.id), [
+        21,
+        20,
+      ], reason: 'order kept');
+    });
+
+    test('drops forgotten replies, and any group left empty', () {
+      final saved = SavedGrouping.of(
+        [
+          ChatGroup(
+            name: 'Pub',
+            about: '',
+            members: [stored('a'), stored('b')],
+          ),
+          ChatGroup(name: 'Work', about: '', members: [stored('c')]),
+        ],
+        count: 2,
+        chatIds: {1},
+      );
+      final back = saved.resolve([stored('a')]);
+      expect(back.single.name, 'Pub');
+      expect(back.single.members, hasLength(1));
+    });
+
+    test('something unreadable is no grouping, not a crash', () {
+      expect(SavedGrouping.decode(null), isNull);
+      expect(SavedGrouping.decode('not json'), isNull);
+      expect(SavedGrouping.decode('{"at": "x"}'), isNull);
+    });
   });
 }

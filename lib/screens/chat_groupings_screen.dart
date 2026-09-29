@@ -5,6 +5,7 @@ import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../services/chat_groupings.dart';
 import '../services/group_map.dart';
+import '../services/groupings_store.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
@@ -30,6 +31,45 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
   List<ChatGroup>? _groups;
   GroupMap _map = GroupMap.empty;
 
+  /// When the groups on screen were made, and from which chats; `null`
+  /// before there are any.
+  DateTime? _madeAt;
+  Set<int> _madeFrom = const {};
+
+  /// Whether the saved groupings are still being read back.
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restore();
+  }
+
+  /// Opens on the last groupings made, read back out of the style memory.
+  Future<void> _restore() async {
+    try {
+      final saved = await ref.read(groupingsStoreProvider).load();
+      if (saved == null) return;
+      final exchanges = await ref
+          .read(exchangeStoreProvider)
+          .all(chatIds: saved.chatIds);
+      final groups = saved.resolve(exchanges);
+      if (groups.isEmpty || !mounted) return;
+      final map = GroupMap.of(groups);
+      setState(() {
+        _groups = groups;
+        _map = map;
+        _count = saved.count;
+        _madeAt = saved.at;
+        _madeFrom = saved.chatIds;
+      });
+    } on Object {
+      // Unreadable or out of date: the page just starts empty.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   /// The ticked chats that match the current fingerprint settings; all
   /// matching chats when none are ticked.
   static List<ChatMemory> _source(List<ChatMemory> all, AppSettings settings) {
@@ -41,6 +81,31 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
     ];
     final ticked = usable.where((c) => c.enabled).toList();
     return ticked.isEmpty ? usable : ticked;
+  }
+
+  /// A note when the groups on screen no longer cover what would be grouped
+  /// now: other chats ticked, or replies added or forgotten since.
+  Widget? _staleness(List<ChatGroup> groups, List<ChatMemory> source) {
+    final now = {for (final c in source) c.id};
+    final grouped = groups.fold(0, (sum, g) => sum + g.size);
+    final available = source.fold(0, (sum, c) => sum + c.exchangeCount);
+    final String? why;
+    if (!now.containsAll(_madeFrom) || !_madeFrom.containsAll(now)) {
+      why = 'The chats ticked have changed since.';
+    } else if (available > grouped) {
+      final added = available - grouped;
+      why =
+          '$added ${added == 1 ? "reply has" : "replies have"} been added '
+          'since.';
+    } else {
+      why = null;
+    }
+    if (why == null) return null;
+    return Notice(
+      'Grouped on ${dayMonthTime(_madeAt!)}. $why Group again to include '
+      'everything.',
+      tone: NoticeTone.caution,
+    );
   }
 
   Future<void> _run(List<ChatMemory> chats) async {
@@ -65,10 +130,26 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
         },
       );
       final map = GroupMap.of(groups);
+      final chatIds = {for (final c in chats) c.id};
+      final now = DateTime.now();
+      if (groups.isNotEmpty) {
+        await ref
+            .read(groupingsStoreProvider)
+            .save(
+              SavedGrouping.of(
+                groups,
+                count: _count,
+                chatIds: chatIds,
+                at: now,
+              ),
+            );
+      }
       if (mounted) {
         setState(() {
           _groups = groups;
           _map = map;
+          _madeAt = now;
+          _madeFrom = chatIds;
         });
       }
     } on Object catch (error) {
@@ -141,6 +222,14 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                 FailureNotice(error: _error!, onRetry: () => _run(source)),
               if (groups != null && groups.isEmpty)
                 const Notice('No replies with fingerprints to group.'),
+              if (_loading && groups == null)
+                const LinearProgressIndicator(minHeight: 3),
+              if (groups != null && groups.isNotEmpty && _madeAt != null)
+                _staleness(groups, source) ??
+                    Text(
+                      'Grouped on ${dayMonthTime(_madeAt!)}.',
+                      style: Type.prose(size: 12.5, color: Paper.muted),
+                    ),
               if (groups != null && groups.isNotEmpty) ...[
                 GroupMapCard(key: ValueKey(groups), groups: groups, map: _map),
                 for (var i = 0; i < groups.length; i++)
@@ -154,7 +243,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
             ];
           },
         ),
-        const Footnote('Groups are made fresh each time and not stored.'),
+        const Footnote('Kept on this phone until you group again.'),
       ],
     );
   }
