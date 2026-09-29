@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../models/stored_exchange.dart';
 import '../services/retrieval.dart';
+import '../theme/bubbles.dart';
 import '../theme/tokens.dart';
+import '../widgets/chat_apps.dart';
 import '../widgets/paper_ui.dart';
 
 /// The past exchanges similarity search pulled out of the style memory for one
@@ -55,15 +57,8 @@ class RetrievedExchangesScreen extends StatelessWidget {
         const SizedBox(height: 9),
         Text(
           examples.isEmpty
-              ? 'Nothing matched closely enough to use — a match needs a '
-                    'score of at least $_floor — so the replies lean on your '
-                    'habits and everyday messages instead. Another screenshot '
-                    'of the conversation, or a longer export, usually helps.'
-              : 'Closest first. These are your real messages, read off this '
-                    'phone — the model saw exactly this and copied from it. '
-                    'Your reply is the one in colour. The number is how close '
-                    'each is to this conversation; below $_floor, or far '
-                    'behind the best, an exchange is not used.',
+              ? 'Nothing matched closely enough (at least $_floor).'
+              : 'Closest first. Your reply is the one in colour.',
           style: Type.prose(size: 14),
         ),
         if (examples.isNotEmpty) ...[
@@ -76,11 +71,6 @@ class RetrievedExchangesScreen extends StatelessWidget {
               first: i == 0,
               chat: chatNames[examples[i].exchange.chatId],
             ),
-          const SizedBox(height: 20),
-          const Footnote(
-            'Read from the fingerprints stored on this phone. Nothing was '
-            'fetched to show this.',
-          ),
         ],
       ],
     );
@@ -113,6 +103,7 @@ class _Exchange extends StatelessWidget {
   Widget build(BuildContext context) {
     final exchange = scored.exchange;
     final when = exchange.timestamp;
+    final bubbles = Bubbles.of(ChatApps.of(context, exchange.chatId));
 
     return Padding(
       padding: const EdgeInsets.only(top: 18),
@@ -152,8 +143,17 @@ class _Exchange extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           for (final turn in exchange.context)
-            _Bubble(text: turn.text, mine: turn.sender == myName),
-          _Bubble(text: exchange.replyText, mine: true, isTheReply: true),
+            _Bubble(
+              text: turn.text,
+              mine: turn.sender == myName,
+              bubbles: bubbles,
+            ),
+          _Bubble(
+            text: exchange.replyText,
+            mine: true,
+            isTheReply: true,
+            bubbles: bubbles,
+          ),
         ],
       ),
     );
@@ -186,11 +186,13 @@ class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.text,
     required this.mine,
+    required this.bubbles,
     this.isTheReply = false,
   });
 
   final String text;
   final bool mine;
+  final Bubbles bubbles;
 
   /// The message actually sent, which is the thing worth reading.
   final bool isTheReply;
@@ -200,10 +202,8 @@ class _Bubble extends StatelessWidget {
     // Laid out like the chat itself: your bubbles green on the right, theirs
     // on the left. The reply that was actually sent is outlined in the
     // accent, because it is the part worth reading.
-    final background = mine || isTheReply
-        ? Paper.bubbleMine
-        : Paper.bubbleTheirs;
-    final foreground = Paper.ink;
+    final fill = bubbles.fill(mine: mine || isTheReply);
+    final foreground = bubbles.text(mine: mine || isTheReply);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -218,8 +218,7 @@ class _Bubble extends StatelessWidget {
                 maxWidth: MediaQuery.sizeOf(context).width * 0.72,
               ),
               padding: const EdgeInsets.fromLTRB(13, 9, 13, 9),
-              decoration: BoxDecoration(
-                color: background,
+              decoration: fill.copyWith(
                 borderRadius: BorderRadius.only(
                   topLeft: mine ? Corner.bubble : Corner.tail,
                   topRight: mine ? Corner.tail : Corner.bubble,

@@ -124,8 +124,7 @@ class _GroupMapCardState extends State<GroupMapCard> {
           Text('The map', style: Type.display(22)),
           const SizedBox(height: 2),
           Text(
-            'Each dot is one of your replies, placed by what was being said. '
-            'Close together means alike.',
+            'Each dot is a reply; close means alike.',
             style: Type.prose(size: 12.5, color: Paper.tertiary, height: 1.4),
           ),
           const SizedBox(height: 10),

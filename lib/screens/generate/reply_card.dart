@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/reply_suggestion.dart';
 import '../../services/reply_generator.dart';
+import '../../models/chat_app.dart';
+import '../../theme/bubbles.dart';
 import '../../theme/tokens.dart';
 
 /// One suggested message: what it is for, its bubbles, and what can be done
@@ -17,10 +19,14 @@ class ReplyCard extends StatelessWidget {
     this.saved = false,
     this.saving = false,
     this.onSave,
+    this.app = ChatApp.whatsapp,
     super.key,
   });
 
   final ReplySuggestion suggestion;
+
+  /// Whose colours the bubbles are drawn in.
+  final ChatApp app;
   final String provenance;
 
   /// How many of this suggestion's bubbles have been copied so far.
@@ -108,6 +114,7 @@ class ReplyCard extends StatelessWidget {
                 children: [
                   for (var i = 0; i < bubbles.length; i++)
                     _Bubble(
+                      app: app,
                       text: split ? bubbles[i] : suggestion.text,
                       copied: i < bubblesCopied,
                       first: i == 0,
@@ -216,9 +223,11 @@ class _Bubble extends StatelessWidget {
     required this.text,
     required this.copied,
     required this.first,
+    required this.app,
     this.meta,
   });
 
+  final ChatApp app;
   final String text;
   final bool copied;
   final bool first;
@@ -229,22 +238,23 @@ class _Bubble extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 3),
     child: Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
-      decoration: BoxDecoration(
-        color: Paper.bubbleMine,
-        borderRadius: BorderRadius.only(
-          topLeft: Corner.bubble,
-          topRight: first ? Corner.tail : Corner.bubble,
-          bottomLeft: Corner.bubble,
-          bottomRight: Corner.bubble,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Paper.shadowSoft,
-            blurRadius: 1,
-            offset: const Offset(0, 1),
+      decoration: Bubbles.of(app)
+          .fill(mine: true)
+          .copyWith(
+            borderRadius: BorderRadius.only(
+              topLeft: Corner.bubble,
+              topRight: first ? Corner.tail : Corner.bubble,
+              bottomLeft: Corner.bubble,
+              bottomRight: Corner.bubble,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Paper.shadowSoft,
+                blurRadius: 1,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
@@ -254,7 +264,11 @@ class _Bubble extends StatelessWidget {
             widthFactor: 1,
             child: Text(
               text,
-              style: Type.prose(size: 15.5, color: Paper.ink, height: 1.4),
+              style: Type.prose(
+                size: 15.5,
+                color: Bubbles.of(app).mineText,
+                height: 1.4,
+              ),
             ),
           ),
           const SizedBox(height: 2),
@@ -269,14 +283,18 @@ class _Bubble extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Type.numeric(
                       size: 10.5,
-                      color: Paper.tertiary,
+                      color: Bubbles.of(app).mineMuted,
                       weight: FontWeight.w400,
                     ),
                   ),
                 ),
               if (copied) ...[
                 const SizedBox(width: 4),
-                Icon(Icons.done_all_rounded, size: 15, color: Paper.accent),
+                Icon(
+                  Icons.done_all_rounded,
+                  size: 15,
+                  color: Bubbles.of(app).mineText,
+                ),
               ],
             ],
           ),

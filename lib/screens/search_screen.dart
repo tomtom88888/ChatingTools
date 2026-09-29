@@ -5,7 +5,9 @@ import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../services/chat_search.dart';
 import '../state/providers.dart';
+import '../theme/bubbles.dart';
 import '../theme/tokens.dart';
+import '../widgets/chat_apps.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
@@ -100,8 +102,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             if (searchable.isEmpty) {
               return const [
                 Notice(
-                  'Import a chat export first, or rebuild the ones made with '
-                  'a different fingerprint model than Settings uses.',
+                  'Import a chat first.',
                   tone: NoticeTone.caution,
                   title: 'Nothing to search',
                 ),
@@ -114,9 +115,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             final hits = _hits;
             return [
               Text(
-                'Describe what you remember, in your own words: "that '
-                'restaurant she mentioned", "when we talked about moving". It '
-                'finds moments by meaning, not only by the exact words.',
+                'Describe it in your own words. It searches by meaning.',
                 style: Type.prose(size: 14, color: Paper.body, height: 1.45),
               ),
               _SearchField(
@@ -183,11 +182,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ];
           },
         ),
-        const Footnote(
-          'Your search is sent to OpenAI or Gemini, whichever fingerprints '
-          'your chats, to fingerprint it. Your chats are searched on this '
-          'phone.',
-        ),
+        const Footnote('Your chats are searched on this phone.'),
       ],
     );
   }
@@ -338,6 +333,7 @@ class _HitCardState extends State<_HitCard> {
         ? e.context
         : e.context.sublist(e.context.length - _collapsed);
     final hidden = e.context.length - turns.length;
+    final bubbles = Bubbles.of(ChatApps.of(context, e.chatId));
 
     return PaperCard(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
@@ -386,8 +382,15 @@ class _HitCardState extends State<_HitCard> {
               text: turn.text,
               who: turn.sender,
               mine: turn.sender == widget.myName,
+              bubbles: bubbles,
             ),
-          _Line(text: e.replyText, who: 'You', mine: true, reply: true),
+          _Line(
+            text: e.replyText,
+            who: 'You',
+            mine: true,
+            reply: true,
+            bubbles: bubbles,
+          ),
         ],
       ),
     );
@@ -399,6 +402,7 @@ class _Line extends StatelessWidget {
     required this.text,
     required this.who,
     required this.mine,
+    required this.bubbles,
     this.reply = false,
   });
 
@@ -406,6 +410,7 @@ class _Line extends StatelessWidget {
   final String who;
   final bool mine;
   final bool reply;
+  final Bubbles bubbles;
 
   @override
   Widget build(BuildContext context) => Align(
@@ -414,14 +419,19 @@ class _Line extends StatelessWidget {
       margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       constraints: const BoxConstraints(maxWidth: 290),
-      decoration: BoxDecoration(
-        color: mine ? Paper.bubbleMine : Paper.panel,
-        borderRadius: Corner.all(Corner.bubble),
-        border: reply ? Border.all(color: Paper.accent, width: 1.5) : null,
-      ),
+      decoration: bubbles
+          .fill(mine: mine)
+          .copyWith(
+            borderRadius: Corner.all(Corner.bubble),
+            border: reply ? Border.all(color: Paper.accent, width: 1.5) : null,
+          ),
       child: Text(
         text,
-        style: Type.prose(size: 13.5, color: Paper.ink, height: 1.35),
+        style: Type.prose(
+          size: 13.5,
+          color: bubbles.text(mine: mine),
+          height: 1.35,
+        ),
       ),
     ),
   );

@@ -68,9 +68,7 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
                 ),
               if (chat.stats.isEmpty)
                 const Notice(
-                  'This chat was imported before its numbers were counted. '
-                  'Import the same export again: nothing new is sent to '
-                  'the AI, so it costs nothing.',
+                  'Import the same export again to count them. It costs nothing.',
                   tone: NoticeTone.caution,
                   title: 'No numbers yet',
                 )
@@ -1090,8 +1088,7 @@ class _FeedbackCard extends StatelessWidget {
       return PaperPanel(
         padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
         child: Text(
-          'Nothing yet. Every time you copy a suggestion — or walk away from '
-          'all of them — it is noted here, on the phone only.',
+          'Nothing yet. Copying a suggestion is noted here.',
           style: Type.prose(size: 13.5, color: Paper.body, height: 1.45),
         ),
       );
@@ -1131,8 +1128,7 @@ class _FeedbackCard extends StatelessWidget {
           if (summary.pickRate < 0.4 && summary.sets >= 10) ...[
             const SizedBox(height: 8),
             Text(
-              'Most sets go unused. Try ticking fewer, closer chats on the '
-              'home screen, or raise "Retrieved examples" in Settings.',
+              'Most sets go unused. Try ticking fewer, closer chats.',
               style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
             ),
           ],

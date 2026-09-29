@@ -9,7 +9,9 @@ import '../services/groupings_store.dart';
 import '../services/topic_timeline.dart';
 import '../state/providers.dart';
 import '../state/tasks.dart';
+import '../theme/bubbles.dart';
 import '../theme/tokens.dart';
+import '../widgets/chat_apps.dart';
 import '../widgets/background_job_card.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
@@ -194,8 +196,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
             if (source.isEmpty) {
               return const [
                 Notice(
-                  'Import a chat export first, or rebuild the ones made with '
-                  'a different fingerprint model than Settings uses.',
+                  'Import a chat first.',
                   tone: NoticeTone.caution,
                   title: 'Nothing to group',
                 ),
@@ -205,11 +206,8 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
             final groups = _groups;
             return [
               Text(
-                'Every reply learned from '
-                '${nameList([for (final c in source) bidiIsolate(c.theirName.isEmpty ? "an unnamed chat" : c.theirName)])} '
-                '(${grouped(replies)} ${replies == 1 ? "reply" : "replies"}) is grouped by what was being said. '
-                'The grouping happens on the phone; a few short samples from '
-                'each group go to the AI so it can name them.',
+                '${grouped(replies)} ${replies == 1 ? "reply" : "replies"}, '
+                'grouped by what was being said.',
                 style: Type.prose(size: 14, color: Paper.body, height: 1.45),
               ),
               NumberStepper(
@@ -391,21 +389,25 @@ class _Sample extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final said = exchange.context.isEmpty ? '' : exchange.context.last.text;
-    Widget bubble(String text, Color color, Alignment side) => Align(
-      alignment: side,
+    final bubbles = Bubbles.of(ChatApps.of(context, exchange.chatId));
+    Widget bubble(String text, {required bool mine}) => Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(top: 4),
         padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
         constraints: const BoxConstraints(maxWidth: 280),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: Corner.all(Corner.bubble),
-        ),
+        decoration: bubbles
+            .fill(mine: mine)
+            .copyWith(borderRadius: Corner.all(Corner.bubble)),
         child: Text(
           text,
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
-          style: Type.prose(size: 13.5, color: Paper.ink, height: 1.35),
+          style: Type.prose(
+            size: 13.5,
+            color: bubbles.text(mine: mine),
+            height: 1.35,
+          ),
         ),
       ),
     );
@@ -417,8 +419,8 @@ class _Sample extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (said.isNotEmpty) bubble(said, Paper.panel, Alignment.centerLeft),
-          bubble(exchange.replyText, Paper.bubbleMine, Alignment.centerRight),
+          if (said.isNotEmpty) bubble(said, mine: false),
+          bubble(exchange.replyText, mine: true),
         ],
       ),
     );

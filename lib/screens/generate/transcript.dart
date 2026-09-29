@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/app_settings.dart';
 import '../../models/extracted_message.dart';
+import '../../models/chat_app.dart';
+import '../../theme/bubbles.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/paper_ui.dart';
 
@@ -14,6 +16,7 @@ class Transcript extends StatelessWidget {
     required this.onToggleFixing,
     required this.onToggleSide,
     required this.onEdit,
+    this.app = ChatApp.whatsapp,
     super.key,
   });
 
@@ -23,6 +26,9 @@ class Transcript extends StatelessWidget {
   final VoidCallback onToggleFixing;
   final ValueChanged<int> onToggleSide;
   final ValueChanged<int> onEdit;
+
+  /// Whose colours the bubbles are drawn in.
+  final ChatApp app;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +84,7 @@ class Transcript extends StatelessWidget {
               ],
               for (var i = 0; i < visible.length; i++)
                 _TranscriptLine(
+                  app: app,
                   message: visible[i],
                   settings: settings,
                   fixing: fixing,
@@ -100,9 +107,11 @@ class _TranscriptLine extends StatelessWidget {
     required this.fixing,
     required this.onToggleSide,
     required this.onEdit,
+    required this.app,
   });
 
   final ExtractedMessage message;
+  final ChatApp app;
   final AppSettings settings;
   final bool fixing;
   final VoidCallback onToggleSide;
@@ -111,6 +120,7 @@ class _TranscriptLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mine = message.speaker == Speaker.me;
+    final bubbles = Bubbles.of(app);
     final bubble = GestureDetector(
       onTap: fixing ? onEdit : null,
       child: Container(
@@ -118,22 +128,23 @@ class _TranscriptLine extends StatelessWidget {
           maxWidth: MediaQuery.sizeOf(context).width * 0.62,
         ),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        decoration: BoxDecoration(
-          color: mine ? Paper.bubbleMine : Paper.bubbleTheirs,
-          borderRadius: BorderRadius.only(
-            topLeft: mine ? Corner.bubble : Corner.tail,
-            topRight: mine ? Corner.tail : Corner.bubble,
-            bottomLeft: Corner.bubble,
-            bottomRight: Corner.bubble,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Paper.shadowSoft,
-              blurRadius: 1,
-              offset: const Offset(0, 1),
+        decoration: bubbles
+            .fill(mine: mine)
+            .copyWith(
+              borderRadius: BorderRadius.only(
+                topLeft: mine ? Corner.bubble : Corner.tail,
+                topRight: mine ? Corner.tail : Corner.bubble,
+                bottomLeft: Corner.bubble,
+                bottomRight: Corner.bubble,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Paper.shadowSoft,
+                  blurRadius: 1,
+                  offset: const Offset(0, 1),
+                ),
+              ],
             ),
-          ],
-        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -179,7 +190,11 @@ class _TranscriptLine extends StatelessWidget {
               ),
             Text(
               message.text,
-              style: Type.prose(size: 13.5, color: Paper.ink, height: 1.4),
+              style: Type.prose(
+                size: 13.5,
+                color: bubbles.text(mine: mine),
+                height: 1.4,
+              ),
             ),
           ],
         ),

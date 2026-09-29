@@ -156,11 +156,8 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
                   onPick: (id) => setState(() => _chatId = id),
                 ),
               Text(
-                'Reads what ${bidiIsolate(them)} wrote and picks out things '
-                'worth bringing up later: what they like, the people in their '
-                'life, plans coming up. When you write to '
-                '${bidiIsolate(them)}, a reply can call back to one when it '
-                'fits.',
+                'Things ${bidiIsolate(them)} told you, for replies to call '
+                'back to.',
                 style: Type.prose(size: 14, color: Paper.body, height: 1.45),
               ),
               if (_loading) const LinearProgressIndicator(minHeight: 3),

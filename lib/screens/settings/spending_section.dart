@@ -81,11 +81,8 @@ class SpendingSection extends ConsumerWidget {
         const SizedBox(height: 7),
         Text(
           pricesSet
-              ? 'Counted from the token figures sent back with each call. '
-                    "An estimate: your provider's dashboard has the bill."
-              : 'Fingerprinting is priced; reading screenshots and writing '
-                    'replies are not until you enter your chat model’s prices '
-                    'below, so the figure above is a floor.',
+              ? "An estimate: your provider's dashboard has the bill."
+              : 'Enter your chat model’s prices below to count replies too.',
           style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
         ),
         const SizedBox(height: 12),

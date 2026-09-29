@@ -174,11 +174,7 @@ class EmptyState extends StatelessWidget {
             const SerifTitle('Screenshot the chat as it stands.', size: 30),
             const SizedBox(height: 10),
             Text(
-              'A straight screenshot of the conversation works best — not '
-              'a crop, and not a photo of a screen. It reads who said what off '
-              'which side the bubbles sit on. For a longer conversation, pick '
-              'a few screenshots taken while scrolling up: they are joined '
-              'into one.',
+              'Pick one or more screenshots; several are joined into one.',
               style: Type.prose(size: 14.5),
             ),
           ],
@@ -316,8 +312,7 @@ class NoteField extends StatelessWidget {
       ),
       const SizedBox(height: 6),
       Text(
-        'Optional. This decides what the message says; your past replies still '
-        'decide how it sounds.',
+        'Optional. What the message should say.',
         style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
       ),
     ],
@@ -351,21 +346,15 @@ class Provenance extends StatelessWidget {
       children: [
         if (skipped.isNotEmpty) ...[
           Notice(
-            '${nameList([for (final c in skipped) c.theirName])} '
-            '${skipped.length == 1 ? "was" : "were"} left out: built with a '
-            'different fingerprint model than Settings uses now. Import '
-            '${skipped.length == 1 ? "that export" : "those exports"} again '
-            'to bring ${skipped.length == 1 ? "it" : "them"} back.',
+            '${nameList([for (final c in skipped) c.theirName])} left out: '
+            'import again to rebuild.',
             tone: NoticeTone.caution,
           ),
           const SizedBox(height: 10),
         ],
         if (none)
           const Notice(
-            'No past exchange was a close enough match, so none were used '
-            'rather than copying unrelated ones. These lean on your habits '
-            'and everyday messages instead. Adding another screenshot, or '
-            'ticking the chat with this person, usually helps.',
+            'These lean on your habits instead.',
             tone: NoticeTone.caution,
             title: 'Nothing similar in your memory',
           )

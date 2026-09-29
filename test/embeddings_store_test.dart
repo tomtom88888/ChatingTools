@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:replylikeme/models/chat_app.dart';
 import 'package:replylikeme/models/chat_stats.dart';
 import 'package:replylikeme/models/chat_turn.dart';
 import 'package:replylikeme/models/reply_suggestion.dart';
@@ -242,7 +243,20 @@ void main() {
     expect(chats.single.theirName, 'Sam');
     expect(chats.single.stats.isEmpty, isTrue);
     expect(chats.single.isGroup, isFalse, reason: 'every older chat is 1:1');
+    expect(chats.single.app, ChatApp.whatsapp, reason: 'and from WhatsApp');
     await store.close();
+  });
+
+  test('remembers which app a chat came from', () async {
+    final store = open();
+    await store.saveChat(
+      chat('Maya').copyWith(app: ChatApp.instagram),
+      added: [row('a', 'b')],
+    );
+    await store.close();
+    final reopened = open();
+    expect((await reopened.chats()).single.app, ChatApp.instagram);
+    await reopened.close();
   });
 
   group('upgrading a single-chat memory', () {

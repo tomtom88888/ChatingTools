@@ -241,8 +241,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             helper:
                 _needsKey(settings.embeddingModel, keys) ??
                 (keys.canFingerprint
-                    ? 'OpenAI or Gemini. Changing this makes the memory you '
-                          'have unusable — retrain afterwards.'
+                    ? 'Changing this means re-importing.'
                     : "Claude can't fingerprint: add an OpenAI or Gemini key "
                           'to learn chats and search them.'),
             onChanged: (v) => _edit((s) => s.copyWith(embeddingModel: v)),
@@ -367,9 +366,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           Footnote(
-            'Model names change. Load the list above and pick one your keys '
-            "can use. A model's name decides who runs it: claude-… is Claude, "
-            'gemini-… is Gemini, anything else is OpenAI.',
+            'claude-… runs on Claude, gemini-… on Gemini, the rest on OpenAI.',
           ),
         ],
       ),

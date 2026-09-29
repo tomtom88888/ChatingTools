@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'chat_app.dart';
 import 'chat_stats.dart';
 import 'chat_turn.dart';
 import 'exchange.dart';
@@ -125,6 +126,7 @@ class ChatMemory {
     this.profile = StyleProfile.empty,
     this.stats = ChatStats.empty,
     this.isGroup = false,
+    this.app = ChatApp.whatsapp,
   });
 
   /// Row id; -1 before insertion.
@@ -160,6 +162,9 @@ class ChatMemory {
   /// several people, each named in what they say.
   final bool isGroup;
 
+  /// The app the export came from.
+  final ChatApp app;
+
   bool get isEmpty => exchangeCount == 0;
 
   /// When the newest message in the imported export was sent, if known.
@@ -193,6 +198,7 @@ class ChatMemory {
     StyleProfile? profile,
     ChatStats? stats,
     bool? isGroup,
+    ChatApp? app,
   }) => ChatMemory(
     id: id ?? this.id,
     myName: myName ?? this.myName,
@@ -206,6 +212,7 @@ class ChatMemory {
     profile: profile ?? this.profile,
     stats: stats ?? this.stats,
     isGroup: isGroup ?? this.isGroup,
+    app: app ?? this.app,
   );
 
   @override

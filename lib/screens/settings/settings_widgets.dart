@@ -271,9 +271,7 @@ class ModeChoice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final explanation = switch (settings.mode) {
-      TrainingMode.styleMemory =>
-        'Retrieves your most similar past replies and prompts a base model '
-            'with them. Instant, and costs only embeddings.',
+      TrainingMode.styleMemory => 'Uses your most similar past replies.',
       TrainingMode.fineTune =>
         settings.hasFineTunedModel
             ? 'Generating with ${settings.fineTunedModel}, still using your '
@@ -442,10 +440,7 @@ class _SystemPromptFieldState extends State<SystemPromptField> {
       ),
       const SizedBox(height: 6),
       Text(
-        '{me} and {them} are filled in with the names from the chat you are '
-        'replying in. The app adds your measured habits, a sample of your '
-        'real messages and your note after this, and puts your past '
-        'exchanges in as real turns of the conversation.',
+        '{me} and {them} become the names in the chat.',
         style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
       ),
     ],

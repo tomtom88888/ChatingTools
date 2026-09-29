@@ -89,8 +89,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         onConfirm: () => Navigator.of(context).pop(true),
         child: Text(
           'Removes the ${grouped(chat.exchangeCount)} replies learned from '
-          'this chat. Your other chats stay as they are. Importing the export '
-          'again brings it back.',
+          'this chat.',
           style: Type.prose(size: 14, color: Paper.body),
         ),
       ),
@@ -133,8 +132,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         children: [
           Notice(
-            "Couldn't open the memory stored on this phone. Your key is fine. "
-            'Re-importing your export rebuilds it.',
+            "Couldn't open the memory on this phone. Re-import to rebuild it.",
             tone: NoticeTone.failure,
             title: 'Memory unreadable',
             actionLabel: 'Try again',
@@ -196,12 +194,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   if (stale.isNotEmpty)
                     Notice(
-                      '${nameList([for (final c in stale) c.theirName])} '
-                      '${stale.length == 1 ? "was" : "were"} built with a '
-                      'different fingerprint model or size than Settings now '
-                      'uses, so ${stale.length == 1 ? "it is" : "they are"} '
-                      'skipped when writing. Import the export again to '
-                      'rebuild.',
+                      '${nameList([for (final c in stale) c.theirName])}: '
+                      'made with another fingerprint model, so skipped. '
+                      'Import again to rebuild.',
                       tone: NoticeTone.caution,
                       title: 'Needs rebuilding',
                     ),
@@ -375,8 +370,7 @@ class _ChatList extends StatelessWidget {
       ),
       const SizedBox(height: 7),
       Text(
-        'How you text a partner is not how you text your boss. Tick only the '
-        'chats that sound like the reply you want.',
+        'Tick the chats that sound like the reply you want.',
         style: Type.prose(size: 12.5, color: Paper.muted, height: 1.4),
       ),
     ],
@@ -710,8 +704,7 @@ class _FineTuneMismatch extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               emphasised(
-                'You picked *fine-tuned* mode, but no fine-tuned model is '
-                'saved — so style memory is doing the work.',
+                'No fine-tuned model saved, so style memory is used.',
                 size: 13.5,
                 color: Paper.warnText,
               ),
@@ -882,9 +875,15 @@ class _Actions extends StatelessWidget {
         // Trained: writing is the everyday act, so it leads. Untrained: there
         // is nothing to write from, so teaching leads.
         // Adding a chat lives in the chat list once there is one.
-        if (trained) write else ...[train, const SizedBox(height: 11), write],
-        const SizedBox(height: 15),
-        const Footnote('Your chat history never leaves this phone.'),
+        if (trained)
+          write
+        else ...[
+          train,
+          const SizedBox(height: 11),
+          write,
+          const SizedBox(height: 15),
+          const Footnote('Your chat history never leaves this phone.'),
+        ],
       ],
     );
   }

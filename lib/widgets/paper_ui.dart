@@ -57,27 +57,54 @@ class PaperScreen extends StatelessWidget {
         child: Padding(padding: frame, child: column),
       );
     } else {
+      // The list scrolls under a soft fade rather than stopping at a hard
+      // edge above the actions.
+      const fade = 28.0;
       body = Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  frame.left,
-                  frame.top,
-                  frame.right,
-                  gap,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        frame.left,
+                        frame.top,
+                        frame.right,
+                        fade,
+                      ),
+                      child: column,
+                    ),
+                  ),
                 ),
-                child: column,
-              ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: fade,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Paper.bg.withValues(alpha: 0), Paper.bg],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Padding(
+            // Sits close to the bottom edge, or to the task tray under it.
             padding: EdgeInsets.fromLTRB(
               frame.left,
-              0,
+              4,
               frame.right,
-              frame.bottom,
+              insets.bottom + 14,
             ),
             child: bottom,
           ),

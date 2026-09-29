@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../models/chat_app.dart';
 import '../models/chat_stats.dart';
 import '../models/chat_turn.dart';
 import '../models/exchange.dart';
@@ -193,6 +194,7 @@ class StyleMemoryService {
     StyleProfile profile = StyleProfile.empty,
     ChatStats stats = ChatStats.empty,
     bool isGroup = false,
+    ChatApp app = ChatApp.whatsapp,
     ImportPlan? importPlan,
     void Function(StyleMemoryProgress)? onProgress,
     bool Function()? isCancelled,
@@ -288,6 +290,7 @@ class StyleMemoryService {
               profile: profile.isEmpty ? base?.profile : profile,
               stats: stats.isEmpty ? base?.stats : stats,
               isGroup: isGroup,
+              app: app,
             );
     return store.saveChat(
       chat,

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/root_screen.dart';
 import 'state/app_activity.dart';
 import 'theme/tokens.dart';
+import 'widgets/chat_apps.dart';
 import 'widgets/task_tray.dart';
 
 void main() {
@@ -64,7 +65,8 @@ class _DittoAppState extends State<DittoApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       theme: _theme(),
       // Long jobs show under every screen, whichever is open.
-      builder: (context, child) => TaskTrayFrame(child: child!),
+      builder: (context, child) =>
+          TaskTrayFrame(child: ChatAppsScope(child: child!)),
       home: const RootScreen(),
     );
   }

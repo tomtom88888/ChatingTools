@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import '../models/chat_app.dart';
 import '../models/chat_stats.dart';
 import '../models/chat_turn.dart';
 import '../models/stored_exchange.dart';
@@ -36,7 +37,7 @@ class SqfliteExchangeStore implements ExchangeStore {
   ///     feedback log.
   /// v3: each chat's numbers for the chat data screen.
   /// v4: whether a chat is a group chat.
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   Database? _database;
   final Map<int, List<StoredExchange>> _cache = {};
@@ -59,6 +60,7 @@ class SqfliteExchangeStore implements ExchangeStore {
           if (from < 2) await _upgradeToV2(db);
           if (from < 3) await _upgradeToV3(db);
           if (from < 4) await _upgradeToV4(db);
+          if (from < 5) await _upgradeToV5(db);
         },
       ),
     );
@@ -104,7 +106,14 @@ class SqfliteExchangeStore implements ExchangeStore {
     await _createV2Tables(db);
     if (version >= 3) await _upgradeToV3(db);
     if (version >= 4) await _upgradeToV4(db);
+    if (version >= 5) await _upgradeToV5(db);
   }
+
+  /// Records which app each chat came from. Every chat learned before this
+  /// came from WhatsApp.
+  static Future<void> _upgradeToV5(DatabaseExecutor db) => db.execute(
+    "ALTER TABLE chats ADD COLUMN app TEXT NOT NULL DEFAULT 'whatsapp'",
+  );
 
   /// Marks group chats. Every chat learned before this is one-to-one.
   static Future<void> _upgradeToV4(DatabaseExecutor db) => db.execute(
@@ -258,6 +267,7 @@ class SqfliteExchangeStore implements ExchangeStore {
       profile: StyleProfile.fromJson(decode('profile_json')),
       stats: ChatStats.fromJson(decode('stats_json')),
       isGroup: (row['is_group'] as num?)?.toInt() == 1,
+      app: ChatApp.parse(row['app']),
     );
   }
 
@@ -280,6 +290,7 @@ class SqfliteExchangeStore implements ExchangeStore {
         'profile_json': jsonEncode(chat.profile.toJson()),
         'stats_json': jsonEncode(chat.stats.toJson()),
         'is_group': chat.isGroup ? 1 : 0,
+        'app': chat.app.name,
       };
       if (chat.id < 0) {
         chatId = await txn.insert('chats', values);

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/app_settings.dart';
+import '../models/chat_app.dart';
 import '../models/chat_turn.dart';
 import '../models/extracted_message.dart';
 import '../models/reply_suggestion.dart';
@@ -277,10 +278,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         hint: 'Sam: are you coming tonight?\nme: maybe',
         minLines: 5,
         maxLines: 10,
-        helper:
-            'Copy messages in WhatsApp (long-press, select, copy) and paste '
-            'them here, or type "Name: message" lines. Your lines start with '
-            'your name or "me:". You can fix sides next.',
+        helper: 'Paste copied messages, or type "Name: message" lines.',
       ),
     );
     if (text == null || !mounted) return;
@@ -687,6 +685,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           ReadingState(count: _readingCount)
         else if (_messages.isNotEmpty)
           Transcript(
+            app: _replyingTo?.app ?? ChatApp.whatsapp,
             messages: _messages,
             settings: named,
             fixing: _fixing,
@@ -729,6 +728,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
           ),
           for (var i = 0; i < _variants.length; i++)
             ReplyCard(
+              app: _replyingTo?.app ?? ChatApp.whatsapp,
               key: ValueKey('reply-$i'),
               suggestion: _variants[i],
               provenance: _provenance(i),

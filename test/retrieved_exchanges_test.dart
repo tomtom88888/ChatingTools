@@ -68,7 +68,7 @@ void main() {
     expect(find.text('3 Jan 2026'), findsOneWidget);
 
     expect(
-      find.textContaining('Nothing was fetched to show this'),
+      find.textContaining('Your reply is the one in colour'),
       findsOneWidget,
     );
   });
@@ -105,7 +105,7 @@ void main() {
 
     expect(find.text('Nothing in your memory matched.'), findsOneWidget);
     expect(
-      find.textContaining('Nothing matched closely enough to use'),
+      find.textContaining('Nothing matched closely enough'),
       findsOneWidget,
     );
   });

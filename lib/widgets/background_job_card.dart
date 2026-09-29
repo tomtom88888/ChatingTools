@@ -62,9 +62,7 @@ class BackgroundJobCard extends StatelessWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  'You can leave this screen: it keeps going, and the bar at '
-                  'the bottom shows how far it has got. If you switch apps, '
-                  'it picks up again when you come back.',
+                  'You can leave this screen; it keeps going.',
                   style: Type.prose(size: 13, color: Paper.ink, height: 1.4),
                 ),
               ),

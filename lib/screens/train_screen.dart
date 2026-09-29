@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_settings.dart';
+import '../models/chat_app.dart';
 import '../models/chat_stats.dart';
 import '../models/exchange.dart';
 import '../models/parsed_chat.dart';
@@ -302,6 +303,9 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
                   ? ChatStats.empty
                   : ChatStats.from(chat, myName: me),
               isGroup: isGroup,
+              app: chat?.format == ExportFormat.instagram
+                  ? ChatApp.instagram
+                  : ChatApp.whatsapp,
               importPlan: plan,
               onProgress: (progress) => task.report(
                 detail:
@@ -394,8 +398,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         ExportGuides(who: who),
         PaperPanel(
           child: Text(
-            "Share it straight to Ditto from that menu and you'll land "
-            'on the next step automatically.',
+            'Or share it straight to Ditto.',
             style: Type.prose(size: 13, color: Paper.body, height: 1.45),
           ),
         ),
@@ -1059,9 +1062,7 @@ class _BuildingCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'You can leave this screen: it keeps going, and the bar at the '
-            'bottom shows how far it has got. If you switch apps, it picks up '
-            'again when you come back.',
+            'You can leave this screen; it keeps going.',
             style: Type.prose(size: 13, color: Paper.onHero, height: 1.45),
           ),
           const SizedBox(height: 12),
@@ -1086,8 +1087,7 @@ class _BuildingCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Cancel and your current memory stays exactly as it is. Nothing '
-            'is replaced until the build finishes.',
+            'Cancelling keeps your current memory.',
             style: Type.prose(
               size: 12,
               color: Paper.onHero.withValues(alpha: 0.50),
@@ -1129,10 +1129,7 @@ class _BuiltCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'It knows ${grouped(total)} of the ways you write '
-          '${isGroup ? "in" : "to"} ${bidiIsolate(theirName)}, and the chat is '
-          'ticked on the home '
-          "screen. Screenshot a chat and it'll take it from there.",
+          '${grouped(total)} replies learned.',
           style: Type.prose(size: 13, color: Paper.greenText, height: 1.45),
         ),
       ],

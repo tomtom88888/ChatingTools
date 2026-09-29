@@ -124,12 +124,12 @@ void main() {
   });
 
   group('system insets', () {
-    testWidgets('the footnote clears the navigation bar when trained', (
+    testWidgets('the reply button clears the navigation bar when trained', (
       tester,
     ) async {
       await pumpHome(tester, chat: hebrewChat());
 
-      final footnote = find.text('Your chat history never leaves this phone.');
+      final footnote = find.text('Write a reply');
       expect(footnote, findsOneWidget);
 
       final bottomOfText = tester.getRect(footnote).bottom;
