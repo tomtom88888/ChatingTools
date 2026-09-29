@@ -1,0 +1,143 @@
+DITTO - BUSINESS PLAN
+Status: backlog. The app is for personal use for now; this is the plan for
+if and when it goes public.
+Last updated: 29 Sep 2026
+
+
+1. THE PRODUCT, IN ONE LINE
+
+Ditto writes replies that sound like you, learned from your own chat
+history. Main audience: dating. People texting a match who want a reply
+that is good AND sounds like them, not like a chatbot.
+
+
+2. MODEL: FREEMIUM
+
+Free
+  - Writing replies (the core feature).
+  - Chat data (reply times, word counts, who talks more). Fun to share,
+    and shared screenshots are free advertising.
+  - Limit: 10 replies a day (hard lock).
+  - Model: Luna for everyone, if Luna turns out good enough (see 4).
+    If it isn't: the first 5 replies of the day on Terra, the rest on Luna.
+  - Imports: 1-2 chats. That's also a natural reason to upgrade ("add
+    more people").
+  - Remember: one free run on a single chat, or a 3-day premium trial,
+    so people feel the difference (see 5).
+
+Premium
+  - Unlimited replies, all on Terra.
+  - Remember: facts about the other person feed into every reply
+    ("her exam is Friday", "his dog is called Biscuit"). This is the
+    headline feature: replies that are clearly better than free.
+  - Extras: Search and Chat groupings.
+  - Unlimited imports.
+  - "Unlimited" has a quiet fair-use cap (around 200 replies a day) that
+    no real person reaches. It protects against scripts and people
+    reselling access. The store listing can still say unlimited.
+
+Why this split
+  - People pay for better replies, not for charts. Remember is what makes
+    replies better, so it leads premium. Search and groupings are nice
+    to explore but rarely the reason someone subscribes.
+  - A daily limit tends to convert better than a locked feature: people
+    hit it at the moment they need a reply.
+
+
+3. WHAT COUNTS AS ONE "REPLY"
+
+  - One tap of "Write replies" = 1 reply, even though it makes several
+    drafts (the options plus the change-of-topic one).
+  - Tweaks (Shorter / Warmer / More like me) and "Try again": free users
+    get one free tweak per reply so they can still get it right; after
+    that, each counts as a reply. Premium: unlimited.
+  - Reading a screenshot is a separate, pricier call. It stays on the good
+    model for everyone: a misread screenshot ruins the reply however good
+    the writing model is.
+
+
+4. BEFORE DECIDING LUNA VS TERRA FOR FREE USERS
+
+Test it on yourself first, with what the app already has:
+  - Settings > reply model: use gpt-5.6-luna for a week, then
+    gpt-5.6-terra for a week.
+  - Chat data > "How the suggestions have done" logs how often a
+    suggestion is copied. Compare the two weeks.
+  - If Luna's copy rate is close to Terra's: everyone gets Luna on free.
+    If it's clearly worse: first 5 a day on Terra, then Luna.
+  - Check current prices for both before deciding; the gap decides how
+    generous free can be.
+  - Risk to keep in mind: if free replies don't sound like the user, they
+    quit before ever seeing premium. Free has to be good enough to hook.
+
+
+5. LETTING PEOPLE TRY REMEMBER
+
+Remember is premium's best feature, but its value is only visible once
+used. Options (pick one):
+  - A 3-day free trial of premium.
+  - One free Remember run on one chat, with its facts used in replies to
+    that person, so the free user sees the difference in reply quality.
+
+
+6. COSTS TO PLAN FOR
+
+  - Replies: cheap per reply. The bulk of the bill at scale.
+  - Screenshot reading: pricier per call than a reply; one per reply.
+  - Importing a chat: embedding all its replies. Cheap per chat, but paid
+    before the user has replied even once. That's why free imports are
+    capped.
+  - Remember: several calls per chat (up to 9 on a long chat). Premium
+    only, occasional.
+  - Groupings: one naming call per run. Premium only, occasional.
+  - Search: one small embedding call per search. Negligible.
+
+
+7. WHAT HAS TO BE BUILT (IN ORDER)
+
+  0. Validate first: give the APK to 10-20 friends for two weeks and
+     check the copy rate and whether they keep coming back. If they
+     don't, no pricing fixes that. Don't build payments before this.
+  1. Backend.
+     - Accounts (sign in with Google / Apple).
+     - All OpenAI calls move to the server; users never see an API key.
+     - Per-account daily limits and usage metering (see 2 and 3).
+     - Chat text now passes through the server, so the "never leaves this
+       phone" line changes to an honest privacy policy. Keep storing
+       chats on the phone; the server only relays requests and keeps
+       nothing it doesn't need.
+  2. Subscriptions.
+     - Google Play Billing and Apple in-app purchases are required for
+       digital features. RevenueCat handles both stores.
+     - Premium is checked on the server, never only in the app: a check
+       in the app is trivial to bypass, especially in a sideloaded APK.
+  3. App store release.
+     - Our own signing key (replace the repo's sideload key).
+     - Privacy policy and data-safety forms. Dating + AI + other people's
+       messages will get a close look in review; be explicit about what
+       is sent to OpenAI and why.
+     - Store listing, screenshots, age rating.
+
+
+8. PRICING
+
+  - Apps that write dating messages usually charge weekly or monthly,
+    with a short free trial.
+  - Price on what it's worth to the user (a better reply at the moment it
+    matters), not on API cost, which is a small fraction of any sensible
+    price.
+  - Decide weekly vs monthly after seeing trial-to-paid numbers.
+
+
+9. RISKS
+
+  - Big platforms (keyboards, the messaging apps' own assistants) add
+    "reply in your style" themselves. Our edge: learning from your own
+    history, and Remember.
+  - Privacy: other people's messages go to OpenAI. Must be disclosed
+    clearly; some users will say no.
+  - The workflow (export, then screenshot per reply) is heavier than an
+    inline keyboard. Worth revisiting before a public launch.
+  - Early dating chats happen in Hinge, Tinder and Bumble, not WhatsApp.
+    Screenshots from those apps work for replies, but the screenshot
+    reader is only tuned for WhatsApp so far.
