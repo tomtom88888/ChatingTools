@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../services/chat_groupings.dart';
+import '../services/group_map.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
+import 'groupings/group_map_card.dart';
 import 'settings/settings_widgets.dart';
 
 /// Your learned replies, grouped by what was being said, with a name for
@@ -26,6 +28,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
   bool _busy = false;
   Object? _error;
   List<ChatGroup>? _groups;
+  GroupMap _map = GroupMap.empty;
 
   /// The ticked chats that match the current fingerprint settings; all
   /// matching chats when none are ticked.
@@ -61,7 +64,13 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
             if (c.isGroup) c.id,
         },
       );
-      if (mounted) setState(() => _groups = groups);
+      final map = GroupMap.of(groups);
+      if (mounted) {
+        setState(() {
+          _groups = groups;
+          _map = map;
+        });
+      }
     } on Object catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -132,13 +141,16 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                 FailureNotice(error: _error!, onRetry: () => _run(source)),
               if (groups != null && groups.isEmpty)
                 const Notice('No replies with fingerprints to group.'),
-              if (groups != null && groups.isNotEmpty)
-                for (final group in groups)
+              if (groups != null && groups.isNotEmpty) ...[
+                GroupMapCard(key: ValueKey(groups), groups: groups, map: _map),
+                for (var i = 0; i < groups.length; i++)
                   _GroupCard(
-                    key: ValueKey('group-${group.name}-${group.size}'),
-                    group: group,
+                    key: ValueKey('group-${groups[i].name}-${groups[i].size}'),
+                    group: groups[i],
+                    number: i + 1,
                     total: groups.fold(0, (sum, g) => sum + g.size),
                   ),
+              ],
             ];
           },
         ),
@@ -151,9 +163,17 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
 /// One group: its name, how much of your chat it is, and its most typical
 /// exchanges.
 class _GroupCard extends StatefulWidget {
-  const _GroupCard({required this.group, required this.total, super.key});
+  const _GroupCard({
+    required this.group,
+    required this.number,
+    required this.total,
+    super.key,
+  });
 
   final ChatGroup group;
+
+  /// Its number on the map, from 1.
+  final int number;
   final int total;
 
   @override
@@ -178,7 +198,17 @@ class _GroupCardState extends State<_GroupCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(group.name, style: Type.display(22)),
+          Row(
+            children: [
+              GroupBadge(
+                number: widget.number,
+                colour: GroupMapCard.colourOf(widget.number - 1),
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Text(group.name, style: Type.display(22))),
+            ],
+          ),
           if (group.about.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
@@ -201,7 +231,7 @@ class _GroupCardState extends State<_GroupCard> {
                       width: (share * box.maxWidth).clamp(3.0, box.maxWidth),
                       height: 6,
                       decoration: BoxDecoration(
-                        color: Paper.accent,
+                        color: GroupMapCard.colourOf(widget.number - 1),
                         borderRadius: Corner.all(const Radius.circular(4)),
                       ),
                     ),

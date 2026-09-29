@@ -286,12 +286,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sent, hasLength(1));
-    expect(find.text('Nights out'), findsOneWidget);
+    expect(
+      find.text('Nights out'),
+      findsNWidgets(2),
+      reason: 'legend and card',
+    );
     expect(find.text('Plans for the pub.'), findsOneWidget);
-    expect(find.text('Work runs'), findsOneWidget);
+    expect(find.text('Work runs'), findsNWidgets(2));
     expect(find.text('4 · 50%'), findsNWidgets(2));
     expect(find.text('go on then'), findsWidgets);
     expect(find.text('Group again'), findsOneWidget);
+
+    // The map sums it up first: a legend row per group with its share.
+    expect(find.text('The map'), findsOneWidget);
+    expect(find.byKey(const ValueKey('group-map')), findsOneWidget);
+    expect(find.byKey(const ValueKey('legend-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('legend-1')), findsOneWidget);
+    expect(find.text('50%'), findsNWidgets(2));
+    await tester.tap(find.byKey(const ValueKey('legend-1')));
+    await tester.pump();
+    expect(find.text('Work runs · 4 replies'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('legend-1')));
+    await tester.pump();
+    expect(
+      find.text('Tap a dot or a name to pick out a group'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }
