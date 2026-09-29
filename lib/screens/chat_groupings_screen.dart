@@ -181,12 +181,9 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
 
     return PaperScreen(
       children: [
-        Row(
-          children: [
-            BackArrow(onTap: () => Navigator.of(context).pop()),
-            const SizedBox(width: 10),
-            const MonoLabel('Chat groupings'),
-          ],
+        ScreenBar(
+          title: 'Chat groupings',
+          onBack: () => Navigator.of(context).pop(),
         ),
         const SerifTitle('What you ', accent: 'talk about', trailing: '.'),
         ...chats.when(

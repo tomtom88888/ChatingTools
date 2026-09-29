@@ -31,12 +31,9 @@ class _ChatDataScreenState extends ConsumerState<ChatDataScreen> {
 
     return PaperScreen(
       children: [
-        Row(
-          children: [
-            BackArrow(onTap: () => Navigator.of(context).pop()),
-            const SizedBox(width: 10),
-            const MonoLabel('Chat data'),
-          ],
+        ScreenBar(
+          title: 'Chat data',
+          onBack: () => Navigator.of(context).pop(),
         ),
         ...chats.when(
           loading: () => [const LinearProgressIndicator(minHeight: 3)],

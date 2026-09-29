@@ -119,13 +119,7 @@ class _FactsScreenState extends ConsumerState<FactsScreen> {
 
     return PaperScreen(
       children: [
-        Row(
-          children: [
-            BackArrow(onTap: () => Navigator.of(context).pop()),
-            const SizedBox(width: 10),
-            const MonoLabel('Remember'),
-          ],
-        ),
+        ScreenBar(title: 'Remember', onBack: () => Navigator.of(context).pop()),
         ...chats.when(
           loading: () => [const LinearProgressIndicator(minHeight: 3)],
           error: (error, _) => [FailureNotice(error: error)],

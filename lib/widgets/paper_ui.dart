@@ -708,6 +708,31 @@ class BackArrow extends StatelessWidget {
   );
 }
 
+/// The top of a screen you can go back from: the arrow, then the screen's
+/// name, the same size on every screen.
+class ScreenBar extends StatelessWidget {
+  const ScreenBar({required this.title, required this.onBack, super.key});
+
+  final String title;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      BackArrow(onTap: onBack),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Type.strong(size: 15, height: 1.3),
+        ),
+      ),
+    ],
+  );
+}
+
 /// The app's logo: the icon, and the name beside it.
 class DittoLogo extends StatelessWidget {
   const DittoLogo({this.size = 32, this.nameSize = 17, super.key});

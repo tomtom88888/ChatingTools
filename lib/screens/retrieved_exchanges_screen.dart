@@ -39,19 +39,9 @@ class RetrievedExchangesScreen extends StatelessWidget {
     return PaperScreen(
       gap: 0,
       children: [
-        Row(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: BackArrow(onTap: () => Navigator.of(context).pop()),
-            ),
-            Expanded(
-              child: Text(
-                'What it drew on',
-                style: Type.strong(size: 15, height: 1.3),
-              ),
-            ),
-          ],
+        ScreenBar(
+          title: 'What it drew on',
+          onBack: () => Navigator.of(context).pop(),
         ),
         const SizedBox(height: Frame.gap),
         SerifTitle(

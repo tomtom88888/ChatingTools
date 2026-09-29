@@ -251,9 +251,9 @@ class _FineTuneScreenState extends ConsumerState<FineTuneScreen> {
               ],
             ),
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: BackArrow(onTap: () => Navigator.of(context).pop()),
+        ScreenBar(
+          title: 'Fine-tuning',
+          onBack: () => Navigator.of(context).pop(),
         ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,

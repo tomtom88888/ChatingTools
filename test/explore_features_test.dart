@@ -123,14 +123,27 @@ void main() {
       ]);
     });
 
-    test('reads a long chat in parts, keeping the newest', () {
+    test('reads a long chat in parts spread over all of it', () {
       final lines = [
         for (var i = 0; i < 4000; i++) 'Maya: line $i ${'x' * 40}',
       ];
       final parts = ChatFacts.chunks(lines);
       expect(parts, hasLength(ChatFacts.maxChunks));
+      // The very start and the very end are both read...
+      expect(parts.first, contains('line 0 '));
       expect(parts.last, contains('line 3999'));
-      expect(parts.first, isNot(contains('line 0 ')));
+      // ...and so is the middle, not just the latest stretch.
+      int firstLine(String part) =>
+          int.parse(RegExp(r'line (\d+) ').firstMatch(part)!.group(1)!);
+      expect(
+        parts.map(firstLine).where((n) => n > 1300 && n < 2700),
+        isNotEmpty,
+      );
+      // Spread out: no two parts are neighbours.
+      final starts = parts.map(firstLine).toList();
+      for (var i = 1; i < starts.length; i++) {
+        expect(starts[i] - starts[i - 1], greaterThan(300));
+      }
       for (final p in parts) {
         expect(p.length, lessThanOrEqualTo(ChatFacts.chunkCharacters + 100));
       }

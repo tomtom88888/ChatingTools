@@ -136,7 +136,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       error: (error, _) => PaperScreen(
         children: [
-          SettingsBack(onTap: () => Navigator.of(context).pop()),
+          ScreenBar(
+            title: 'Settings',
+            onBack: () => Navigator.of(context).pop(),
+          ),
           FailureNotice(
             error: error,
             onRetry: () => ref.invalidate(settingsProvider),
@@ -146,7 +149,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       data: (settings) => PaperScreen(
         gap: 14,
         children: [
-          SettingsBack(onTap: () => Navigator.of(context).pop()),
+          ScreenBar(
+            title: 'Settings',
+            onBack: () => Navigator.of(context).pop(),
+          ),
           const SerifTitle('Settings', size: 34),
 
           const MonoLabel('OpenAI account'),

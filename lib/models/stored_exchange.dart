@@ -162,6 +162,19 @@ class ChatMemory {
 
   bool get isEmpty => exchangeCount == 0;
 
+  /// When the newest message in the imported export was sent, if known.
+  DateTime? get lastMessageAt => stats.isEmpty ? null : stats.lastAt;
+
+  /// How old an export can get before a newer one should be imported.
+  static const Duration freshFor = Duration(days: 30);
+
+  /// Whether the export ends more than [freshFor] before [now]: the chat has
+  /// likely moved on since, and replies won't know about it.
+  bool isOutOfDate([DateTime? now]) {
+    final last = lastMessageAt;
+    return last != null && (now ?? DateTime.now()).difference(last) > freshFor;
+  }
+
   /// Whether this chat's vectors can be compared with a query embedded using
   /// [model] at [dims].
   bool matches(String model, int dims) =>

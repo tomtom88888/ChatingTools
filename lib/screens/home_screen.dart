@@ -174,6 +174,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onDelete: _confirmDelete,
                     onAdd: openTrain,
                   ),
+                  if (enabled.where((c) => c.isOutOfDate()).toList()
+                      case final old when old.isNotEmpty)
+                    Notice(
+                      old.length == 1
+                          ? '${bidiIsolate(old.single.theirName.isEmpty ? "This chat" : old.single.theirName)}’s '
+                                'export ends on '
+                                '${dayMonthYear(old.single.lastMessageAt!)}. '
+                                'Import a newer one so replies know what '
+                                'has been said since.'
+                          : 'The exports for '
+                                '${nameList([for (final c in old) c.theirName])} '
+                                'end over a month ago. Import newer ones so '
+                                'replies know what has been said since.',
+                      key: const ValueKey('out-of-date'),
+                      tone: NoticeTone.caution,
+                      title: 'Time for a new export',
+                      actionLabel: 'Import a newer export',
+                      onAction: openTrain,
+                    ),
                   if (stale.isNotEmpty)
                     Notice(
                       '${nameList([for (final c in stale) c.theirName])} '
@@ -442,6 +461,33 @@ class _ChatRow extends StatelessWidget {
                       weight: FontWeight.w400,
                     ),
                   ),
+                  if (chat.isOutOfDate())
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 13,
+                            color: Paper.warnText,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'Ends ${dayMonthYear(chat.lastMessageAt!)} · '
+                              'import a newer export',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Type.prose(
+                                size: 11.5,
+                                color: Paper.warnText,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),

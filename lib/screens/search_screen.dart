@@ -90,13 +90,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     return PaperScreen(
       children: [
-        Row(
-          children: [
-            BackArrow(onTap: () => Navigator.of(context).pop()),
-            const SizedBox(width: 10),
-            const MonoLabel('Search'),
-          ],
-        ),
+        ScreenBar(title: 'Search', onBack: () => Navigator.of(context).pop()),
         const SerifTitle('Find a ', accent: 'moment', trailing: '.'),
         ...chats.when(
           loading: () => [const LinearProgressIndicator(minHeight: 3)],

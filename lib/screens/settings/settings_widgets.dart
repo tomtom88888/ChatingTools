@@ -5,18 +5,6 @@ import '../../theme/tokens.dart';
 import '../../widgets/paper_dialog.dart';
 import '../../widgets/paper_ui.dart';
 
-class SettingsBack extends StatelessWidget {
-  const SettingsBack({required this.onTap, super.key});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerLeft,
-    child: BackArrow(onTap: onTap),
-  );
-}
-
 class TapRow extends StatelessWidget {
   const TapRow({
     required this.label,

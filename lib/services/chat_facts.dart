@@ -60,9 +60,9 @@ class ChatFacts {
   /// Characters of their messages per request.
   static const int chunkCharacters = 12000;
 
-  /// At most this many chunks are read, newest first: about the last 70,000
-  /// characters of what they said.
-  static const int maxChunks = 6;
+  /// At most this many chunks are read: about 100,000 characters of what
+  /// they said, spread over the whole chat.
+  static const int maxChunks = 8;
 
   /// The most facts kept for one chat.
   static const int maxFacts = 40;
@@ -107,8 +107,11 @@ class ChatFacts {
     return [for (final l in lines) l.$3];
   }
 
-  /// [lines] cut into requests of about [chunkCharacters], keeping only the
-  /// newest [maxChunks].
+  /// [lines] cut into requests of about [chunkCharacters]. A chat too long
+  /// to read whole keeps [maxChunks] of them spread evenly from its first
+  /// message to its last, each a continuous stretch so it still reads as
+  /// conversation; reading only the newest would make a busy chat's facts
+  /// all about the last few weeks.
   static List<String> chunks(List<String> lines) {
     final out = <String>[];
     var current = StringBuffer();
@@ -121,7 +124,12 @@ class ChatFacts {
       current.writeln(line);
     }
     if (current.isNotEmpty) out.add(current.toString());
-    return out.length <= maxChunks ? out : out.sublist(out.length - maxChunks);
+    if (out.length <= maxChunks) return out;
+    final last = out.length - 1;
+    return [
+      for (var i = 0; i < maxChunks; i++)
+        out[(i * last / (maxChunks - 1)).round()],
+    ];
   }
 
   /// Finds the facts in [exchanges] about [them]. [onProgress] hears how
@@ -209,9 +217,11 @@ class ChatFacts {
 
   static String mergePrompt({required String them}) =>
       'These facts about ${them.isEmpty ? "the other person" : them} were '
-      'found in different parts of the same chat. Merge them: remove '
-      'repeats, keep the newer of two that disagree, drop anything trivial, '
-      'and keep at most $maxFacts, the most useful first. Keep each short, '
+      'found in parts of the same chat spread over its whole history, oldest '
+      'part first. Merge them: remove repeats, keep the newer of two that '
+      'disagree (a new job, a plan that changed), drop anything trivial, and '
+      'keep at most $maxFacts, the most useful first. Keep lasting facts from '
+      'every part of the history, not only the most recent. Keep each short, '
       'in the language it is in, with its category from: '
       '${categories.join(', ')}. Answer only with JSON: '
       '{"facts": [{"text": "...", "category": "..."}]}';
