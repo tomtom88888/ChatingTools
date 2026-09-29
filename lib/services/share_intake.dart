@@ -33,7 +33,7 @@ class SharedScreenshot extends SharedItem {
 class ShareIntake {
   const ShareIntake._();
 
-  static const Set<String> _exportExtensions = {'.txt', '.zip'};
+  static const Set<String> _exportExtensions = {'.txt', '.zip', '.json'};
 
   /// Formats the vision API accepts. HEIC is not among them, and iOS shares
   /// screenshots as PNG anyway.

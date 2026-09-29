@@ -9,6 +9,9 @@ enum ExportFormat {
   /// `[12/03/2023, 19:45:12] Alice: hello`
   ios,
 
+  /// Instagram's JSON export (`message_1.json`).
+  instagram,
+
   /// Nothing matched — almost always "this isn't a WhatsApp export".
   unknown,
 }

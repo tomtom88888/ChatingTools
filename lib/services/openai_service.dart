@@ -381,22 +381,26 @@ class OpenAiService {
   }
 
   static const String _visionSystemPrompt =
-      'You transcribe WhatsApp conversation screenshots. In WhatsApp the '
-      "user's own messages are the bubbles aligned to the RIGHT edge of the "
-      'screen (usually green or blue-tinted), and the other person\'s messages '
-      'are the bubbles aligned to the LEFT edge (usually white or grey). '
+      'You transcribe screenshots of a chat: WhatsApp, or Instagram direct '
+      "messages. In both, the user's own messages are the bubbles aligned to "
+      'the RIGHT edge of the screen (WhatsApp: green or blue-tinted; '
+      'Instagram: purple, blue or a gradient), and the other person\'s '
+      'messages are the bubbles aligned to the LEFT edge (white or grey, on '
+      'Instagram often with their small profile picture beside them). '
       'Alignment decides the sender, never the wording. Transcribe the visible '
       'messages in top-to-bottom order, exactly as written, keeping emoji, '
       'capitalisation, spelling and language as they appear. Ignore date '
-      'separators, timestamps, read receipts, the contact header and the input '
-      'box.\n\n'
+      'separators, timestamps, read receipts ("Seen"), reactions under a '
+      'bubble, the contact header and the input box.\n\n'
       'Replies: a bubble that replies to an earlier message has a small quoted '
       'box at its top, with a coloured bar down one side, the quoted '
       "sender's name, and the quoted text (often cut short with \u2026). That "
       'box is NOT part of the message. Put only the text typed below it in '
       '"text", and the quoted text, without the name, in "quoted". Never put '
       'the quoted text in "text", and never output the quoted box as a '
-      'message of its own.\n\n'
+      'message of its own. On Instagram a reply is shown as "Replied to you" '
+      'or "You replied" above a faded copy of the message it answers: that '
+      'faded copy is the quoted text.\n\n'
       'Group chats: each of the other people\'s bubbles shows the sender\'s '
       'name at its top, often in colour (a run of bubbles from one person '
       'may show it only on the first). Put that name in "name" for every '

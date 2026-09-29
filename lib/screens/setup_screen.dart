@@ -146,7 +146,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Hand it one exported WhatsApp chat. It reads how you actually '
+              'Hand it one exported WhatsApp or Instagram chat. It reads how '
+              'you actually '
               'reply to that person, then suggests three replies that sound '
               'like you.',
               style: Type.prose(size: 15),

@@ -12,6 +12,7 @@ import '../models/parsed_chat.dart';
 import '../models/stored_exchange.dart';
 import '../models/style_profile.dart';
 import '../services/chat_export_reader.dart';
+import '../services/instagram_parser.dart';
 import '../services/pricing.dart';
 import '../services/share_intake.dart';
 import '../services/style_memory_service.dart';
@@ -19,6 +20,7 @@ import '../services/whatsapp_parser.dart';
 import '../state/providers.dart';
 import '../state/tasks.dart';
 import '../theme/tokens.dart';
+import '../widgets/export_guides.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_dialog.dart';
@@ -93,9 +95,9 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     setState(() => _error = null);
     try {
       final picked = await FilePicker.pickFile(
-        dialogTitle: 'Pick a WhatsApp chat export',
+        dialogTitle: 'Pick a WhatsApp or Instagram export',
         type: FileType.custom,
-        allowedExtensions: const ['txt', 'zip'],
+        allowedExtensions: const ['txt', 'zip', 'json'],
       );
       if (picked == null) return;
       await _loadBytes(await picked.xFile.readAsBytes(), picked.name);
@@ -120,14 +122,28 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       _addedCount = null;
     });
     try {
-      final text = ChatExportReader.read(bytes, filename: name);
-      final chat = WhatsAppParser.parse(text);
-
-      if (chat.format == ExportFormat.unknown) {
-        throw const ChatExportException(
-          "This doesn't have WhatsApp's date-and-name lines. Did another app "
-          'make it?',
-        );
+      final source = ChatExportReader.open(bytes, filename: name);
+      final ParsedChat chat;
+      String? owner;
+      String? title;
+      switch (source) {
+        case WhatsAppSource(:final text):
+          chat = WhatsAppParser.parse(text);
+          if (chat.format == ExportFormat.unknown) {
+            throw const ChatExportException(
+              "This doesn't look like a WhatsApp or Instagram export. For "
+              'WhatsApp pick the .txt or .zip from Export chat; for Instagram '
+              'the .zip (JSON) from Download your information.',
+            );
+          }
+        case InstagramSource(:final threads):
+          final thread = threads.length == 1
+              ? threads.single
+              : await _pickThread(threads);
+          if (thread == null) return;
+          chat = InstagramParser.toParsedChat(thread);
+          owner = InstagramParser.ownerOf(threads);
+          title = thread.title;
       }
       if (chat.senders.length < 2) {
         final only = chat.senders.isEmpty ? 'one person' : chat.senders.first;
@@ -139,14 +155,16 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
 
       final settings = await ref.read(settingsProvider.future);
       final senders = chat.senders;
-      final mine = senders.contains(settings.myName)
+      final mine = owner != null && senders.contains(owner)
+          ? owner
+          : senders.contains(settings.myName)
           ? settings.myName
           : senders.first;
       // A group is named for the chat, which WhatsApp puts in the file's
       // name; a one-to-one chat for the other person.
       final group = chat.isGroup;
       final groupName = group
-          ? (ChatExportReader.chatNameFromFilename(name) ?? '')
+          ? (title ?? ChatExportReader.chatNameFromFilename(name) ?? '')
           : '';
       final theirs = group
           ? groupName
@@ -169,6 +187,19 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       if (mounted) setState(() => _reading = false);
     }
   }
+
+  /// Asks which conversation to learn from an Instagram export holding
+  /// several, most recent first.
+  Future<InstagramThread?> _pickThread(List<InstagramThread> threads) =>
+      showModalBottomSheet<InstagramThread>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Paper.bg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Corner.card),
+        ),
+        builder: (context) => _ThreadPicker(threads: threads),
+      );
 
   /// Exchanges follow from the export and the chosen name, so they are
   /// recomputed when either changes rather than on every rebuild.
@@ -340,7 +371,8 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
           ),
           const SizedBox(height: 11),
           const Footnote(
-            'A .txt, or the .zip WhatsApp makes if media slipped in.',
+            'WhatsApp: a .txt or .zip. Instagram: the .zip, or one '
+            'message_1.json from it.',
           ),
         ],
       ),
@@ -350,23 +382,16 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SerifTitle('Get the chat out of WhatsApp'),
+            const SerifTitle('Get the chat out'),
             const SizedBox(height: 9),
             Text(
-              'WhatsApp can hand you a plain text file of one conversation. '
-              "It's buried, so here it is exactly:",
+              'WhatsApp and Instagram can both hand you a copy of a '
+              "conversation. It's buried, so here it is exactly:",
               style: Type.prose(size: 14.5),
             ),
           ],
         ),
-        NumberedSteps([
-          'Open the chat with *${bidiIsolate(who)}* in WhatsApp.',
-          'Tap their *name* at the top.',
-          'Scroll right to the bottom of that page.',
-          'Tap *Export chat*.',
-          'Choose *Without Media* — photos carry no style, and the file '
-              'stays small.',
-        ]),
+        ExportGuides(who: who),
         PaperPanel(
           child: Text(
             "Share it straight to Ditto from that menu and you'll land "
@@ -397,6 +422,7 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
     final layout = switch (chat.format) {
       ExportFormat.android => 'Android export',
       ExportFormat.ios => 'iOS export',
+      ExportFormat.instagram => 'Instagram export',
       ExportFormat.unknown => 'unrecognised layout',
     };
 
@@ -591,6 +617,70 @@ class _TrainScreenState extends ConsumerState<TrainScreen> {
       ],
     );
   }
+}
+
+/// The conversations in an Instagram export, to pick the one to learn.
+class _ThreadPicker extends StatelessWidget {
+  const _ThreadPicker({required this.threads});
+
+  final List<InstagramThread> threads;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 6),
+            child: Text('Which conversation?', style: Type.display(24)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 10),
+            child: Text(
+              'Your Instagram export has ${threads.length} of them. Pick the '
+              'one to learn from; you can add others after.',
+              style: Type.prose(size: 13.5, color: Paper.body, height: 1.4),
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
+              itemCount: threads.length,
+              itemBuilder: (context, i) {
+                final t = threads[i];
+                final last = t.lastAt;
+                return ListTile(
+                  key: ValueKey('thread-$i'),
+                  leading: Icon(
+                    t.isGroup ? Icons.groups_rounded : Icons.person_rounded,
+                    color: Paper.accent,
+                  ),
+                  title: Text(
+                    t.title.isEmpty ? 'Unnamed chat' : t.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.strong(size: 15),
+                  ),
+                  subtitle: Text(
+                    '${grouped(t.size)} messages'
+                    '${last == null ? "" : " · last ${dayMonthYear(last)}"}',
+                    style: Type.prose(size: 12.5, color: Paper.tertiary),
+                  ),
+                  onTap: () => Navigator.of(context).pop(t),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// What the parser understood, so the user can recognise their own chat.

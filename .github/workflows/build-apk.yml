@@ -65,16 +65,12 @@ jobs:
           path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
 
-      # Artifacts need a logged-in browser to download, so every push to master
-      # also publishes the APKs as a full release with a plain download link.
-      # Master only moves when a feature is finished, so that is one release per
-      # feature. Other branches and pull requests never publish; a hand-started
-      # run ("Run workflow" in the Actions tab) does, and asks whether it is a
-      # prerelease.
+      # Artifacts need a logged-in browser to download, so a release gives a
+      # plain download link. Releases are made by hand only: "Run workflow" in
+      # the Actions tab, which asks whether it is a prerelease. Pushes and
+      # pull requests just build and test.
       - name: Publish the APK as a release
-        if: >-
-          github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' && github.ref == 'refs/heads/master')
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -82,10 +78,7 @@ jobs:
           version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
           tag="v${version}-${GITHUB_SHA::7}"
           flags=()
-          prerelease=false
-          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            prerelease="${{ inputs.prerelease }}"
-          fi
+          prerelease="${{ inputs.prerelease }}"
           if [ "$prerelease" != "false" ]; then flags+=(--prerelease); fi
           mapfile -t apks < <(ls build/app/outputs/flutter-apk/*.apk)
           # A commit already released by hand is reused, and promoted if this

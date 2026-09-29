@@ -3,6 +3,28 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
+import 'instagram_parser.dart';
+
+/// What an import file turned out to hold.
+sealed class ChatSource {
+  const ChatSource();
+}
+
+/// A WhatsApp export's text, still to be parsed.
+class WhatsAppSource extends ChatSource {
+  const WhatsAppSource(this.text);
+
+  final String text;
+}
+
+/// The conversations in an Instagram export, most recent first. A zip of a
+/// whole account holds many; a single `message_1.json` holds one.
+class InstagramSource extends ChatSource {
+  const InstagramSource(this.threads);
+
+  final List<InstagramThread> threads;
+}
+
 /// Raised when an import file cannot be turned into export text.
 class ChatExportException implements Exception {
   const ChatExportException(this.message);
@@ -46,6 +68,57 @@ class ChatExportReader {
     return result == null || result.isEmpty ? null : result;
   }
 
+  /// Works out what [bytes] hold: a WhatsApp export (`.txt`, or the `.zip`
+  /// WhatsApp makes), or Instagram's JSON (one `message_N.json`, or the zip
+  /// of a "Download your information" export).
+  static ChatSource open(List<int> bytes, {String? filename}) {
+    if (bytes.isEmpty) {
+      throw const ChatExportException('That file is empty.');
+    }
+    final isZip =
+        looksLikeZip(bytes) ||
+        (filename != null && filename.toLowerCase().endsWith('.zip'));
+    if (!isZip) {
+      final text = _decodeText(bytes);
+      if (InstagramParser.looksLikeThread(text)) {
+        final thread = InstagramParser.thread([text]);
+        if (thread.messages.isEmpty) {
+          throw const ChatExportException(
+            'That Instagram file has no messages in it.',
+          );
+        }
+        return InstagramSource([thread]);
+      }
+      return WhatsAppSource(text);
+    }
+
+    final archive = _openZip(bytes);
+    final threadFiles = <String, List<ArchiveFile>>{};
+    for (final f in archive.files) {
+      if (f.isFile && InstagramParser.isThreadFile(f.name)) {
+        (threadFiles[InstagramParser.threadFolder(f.name)] ??= []).add(f);
+      }
+    }
+    if (threadFiles.isEmpty) return WhatsAppSource(_transcriptIn(archive));
+    final threads = [
+      for (final files in threadFiles.values)
+        InstagramParser.thread([for (final f in files) _decodeText(f.content)]),
+    ].where((t) => t.messages.isNotEmpty).toList();
+    if (threads.isEmpty) {
+      throw const ChatExportException(
+        'That Instagram export has no messages in it. When you ask Instagram '
+        'for your information, tick Messages and choose JSON.',
+      );
+    }
+    threads.sort((a, b) {
+      final x = a.lastAt;
+      final y = b.lastAt;
+      if (x == null || y == null) return b.size.compareTo(a.size);
+      return y.compareTo(x);
+    });
+    return InstagramSource(threads);
+  }
+
   static String read(List<int> bytes, {String? filename}) {
     if (bytes.isEmpty) {
       throw const ChatExportException('That file is empty.');
@@ -56,14 +129,17 @@ class ChatExportReader {
     return isZip ? _readZip(bytes) : _decodeText(bytes);
   }
 
-  static String _readZip(List<int> bytes) {
-    final Archive archive;
+  static String _readZip(List<int> bytes) => _transcriptIn(_openZip(bytes));
+
+  static Archive _openZip(List<int> bytes) {
     try {
-      archive = ZipDecoder().decodeBytes(bytes);
+      return ZipDecoder().decodeBytes(bytes);
     } on Object catch (error) {
       throw ChatExportException('That .zip could not be opened ($error).');
     }
+  }
 
+  static String _transcriptIn(Archive archive) {
     // WhatsApp puts exactly one .txt transcript in the archive alongside the
     // media; if there are several, the largest is the transcript.
     final candidates =

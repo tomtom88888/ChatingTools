@@ -8,6 +8,7 @@ import '../models/stored_exchange.dart';
 import '../services/share_intake.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
+import '../widgets/export_guides.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_dialog.dart';
@@ -738,7 +739,7 @@ class _DoesNotKnowYou extends StatelessWidget {
   const _DoesNotKnowYou();
 
   static const List<String> _steps = [
-    'Export the chat from WhatsApp — the app shows you exactly how.',
+    'Export a chat from WhatsApp or Instagram: here is exactly how.',
     'Say which name is you. Only your replies get learned.',
     'A minute or two of building. Costs well under a cent.',
   ];
@@ -756,7 +757,8 @@ class _DoesNotKnowYou extends StatelessWidget {
             const SerifTitle("It doesn't know you yet.", size: 34),
             const SizedBox(height: 10),
             Text(
-              'Import one exported WhatsApp conversation and it will read '
+              'Import one exported WhatsApp or Instagram conversation and it '
+              'will read '
               'every reply you sent in it — how long, how punctuated, how '
               'you open and sign off — and keep that here on the phone.',
               style: Type.prose(size: 14.5),
@@ -797,6 +799,10 @@ class _DoesNotKnowYou extends StatelessWidget {
           ],
         ),
       ),
+      const SizedBox(height: Frame.gap),
+      const MonoLabel('How to export a chat'),
+      const SizedBox(height: 9),
+      const ExportGuides(),
     ],
   );
 }
@@ -865,7 +871,7 @@ class _Actions extends StatelessWidget {
           (trained ? 'Add or refresh a chat' : 'Teach it your voice'),
       subtitle: trained
           ? 'Import an export · only new replies are sent'
-          : 'Import a WhatsApp export',
+          : 'Import a WhatsApp or Instagram export',
       tone: trained ? ActionTone.outline : ActionTone.ink,
       onTap: onTrain,
     );

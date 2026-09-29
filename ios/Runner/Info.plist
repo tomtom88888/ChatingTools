@@ -75,7 +75,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>WhatsApp chat export</string>
+			<string>WhatsApp or Instagram chat export</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 			<key>CFBundleTypeRole</key>
@@ -84,6 +84,7 @@
 			<array>
 				<string>public.plain-text</string>
 				<string>public.zip-archive</string>
+				<string>public.json</string>
 			</array>
 		</dict>
 	</array>
