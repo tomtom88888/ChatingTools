@@ -103,6 +103,7 @@ class ReplyGenerator {
     StyleProfile profile = StyleProfile.empty,
     List<String> voiceSample = const [],
     bool group = false,
+    List<String> facts = const [],
   }) async {
     if (conversation.isEmpty) {
       throw const OpenAiException(
@@ -132,6 +133,7 @@ class ReplyGenerator {
           voiceSample: voiceSample,
           newTopic: newTopic,
           group: group,
+          facts: facts,
         );
 
     final answers = await _bestDrafts(
@@ -199,6 +201,7 @@ class ReplyGenerator {
     StyleProfile profile = StyleProfile.empty,
     List<String> voiceSample = const [],
     bool group = false,
+    List<String> facts = const [],
   }) async {
     final me = _name(settings.myName, 'the user');
     final messages = buildMessages(
@@ -210,6 +213,7 @@ class ReplyGenerator {
       voiceSample: voiceSample,
       newTopic: suggestion.isNewTopic,
       group: group,
+      facts: facts,
       extra:
           'You had drafted this as your next message:\n'
           '${suggestion.text}\n\n'
@@ -249,6 +253,7 @@ class ReplyGenerator {
     List<String> voiceSample = const [],
     bool newTopic = false,
     bool group = false,
+    List<String> facts = const [],
     String? extra,
   }) {
     final me = settings.myName;
@@ -267,6 +272,7 @@ class ReplyGenerator {
           hasExamples: examples.isNotEmpty,
           group: group,
           earlier: earlier,
+          facts: facts,
           extra: extra,
         ),
       },
@@ -358,6 +364,7 @@ class ReplyGenerator {
     bool hasExamples = true,
     bool group = false,
     List<ChatTurn> earlier = const [],
+    List<String> facts = const [],
     String? extra,
   }) {
     final me = settings.myName.isEmpty ? 'the user' : settings.myName;
@@ -406,6 +413,14 @@ class ReplyGenerator {
         'Earlier in this same conversation, before the part in the last user '
         'message (background only — what $me writes answers the latest '
         'messages):\n$background',
+      );
+    }
+
+    if (facts.isNotEmpty) {
+      section(
+        'Things $me knows about $them from their chats, to call back to only '
+        'when one fits what is being said (never list them, never force one '
+        'in):\n${facts.map((f) => '- $f').join('\n')}',
       );
     }
 

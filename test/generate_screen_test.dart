@@ -13,6 +13,7 @@ import 'package:replylikeme/models/reply_suggestion.dart';
 import 'package:replylikeme/models/stored_exchange.dart';
 import 'package:replylikeme/models/style_profile.dart';
 import 'package:replylikeme/screens/generate_screen.dart';
+import 'package:replylikeme/services/chat_facts.dart';
 import 'package:replylikeme/services/memory_exchange_store.dart';
 import 'package:replylikeme/services/openai_service.dart';
 import 'package:replylikeme/services/vector_math.dart';
@@ -279,6 +280,27 @@ void main() {
       'good week?\n(you) long one\npub tonight?\n(you) maybe\ngo on\n'
       '(you) fine, 8?\nsee you there, bring cash',
     );
+  });
+
+  testWidgets('what is remembered about them goes to the writer', (
+    tester,
+  ) async {
+    await const FactsStore().save(
+      1,
+      SavedFacts(
+        at: DateTime(2026, 9, 1),
+        facts: const [
+          ChatFact(text: 'Has a dog called Biscuit', category: 'People & pets'),
+        ],
+      ),
+    );
+    await pump(tester);
+    await pasteAndWrite(tester);
+    final system =
+        ((chatBodies.first['messages']! as List).first as Map)['content']
+            as String;
+    expect(system, contains('Things Robin knows about Sam'));
+    expect(system, contains('- Has a dog called Biscuit'));
   });
 
   testWidgets('a split reply is copied one bubble at a time', (tester) async {

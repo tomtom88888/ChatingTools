@@ -6,12 +6,14 @@ import '../models/stored_exchange.dart';
 import '../services/chat_groupings.dart';
 import '../services/group_map.dart';
 import '../services/groupings_store.dart';
+import '../services/topic_timeline.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/failure_text.dart';
 import '../widgets/format.dart';
 import '../widgets/paper_ui.dart';
 import 'groupings/group_map_card.dart';
+import 'groupings/topic_timeline_card.dart';
 import 'settings/settings_widgets.dart';
 
 /// Your learned replies, grouped by what was being said, with a name for
@@ -30,6 +32,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
   Object? _error;
   List<ChatGroup>? _groups;
   GroupMap _map = GroupMap.empty;
+  TopicTimeline? _timeline;
 
   /// When the groups on screen were made, and from which chats; `null`
   /// before there are any.
@@ -56,9 +59,11 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
       final groups = saved.resolve(exchanges);
       if (groups.isEmpty || !mounted) return;
       final map = GroupMap.of(groups);
+      final timeline = TopicTimeline.of(groups);
       setState(() {
         _groups = groups;
         _map = map;
+        _timeline = timeline;
         _count = saved.count;
         _madeAt = saved.at;
         _madeFrom = saved.chatIds;
@@ -130,6 +135,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
         },
       );
       final map = GroupMap.of(groups);
+      final timeline = TopicTimeline.of(groups);
       final chatIds = {for (final c in chats) c.id};
       final now = DateTime.now();
       if (groups.isNotEmpty) {
@@ -148,6 +154,7 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
         setState(() {
           _groups = groups;
           _map = map;
+          _timeline = timeline;
           _madeAt = now;
           _madeFrom = chatIds;
         });
@@ -232,6 +239,13 @@ class _ChatGroupingsScreenState extends ConsumerState<ChatGroupingsScreen> {
                     ),
               if (groups != null && groups.isNotEmpty) ...[
                 GroupMapCard(key: ValueKey(groups), groups: groups, map: _map),
+                if (_timeline case final timeline?
+                    when timeline.buckets.length > 1)
+                  TopicTimelineCard(
+                    key: ValueKey(timeline),
+                    groups: groups,
+                    timeline: timeline,
+                  ),
                 for (var i = 0; i < groups.length; i++)
                   _GroupCard(
                     key: ValueKey('group-${groups[i].name}-${groups[i].size}'),

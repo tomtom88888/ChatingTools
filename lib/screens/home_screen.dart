@@ -15,6 +15,8 @@ import '../widgets/paper_ui.dart';
 import 'generate_screen.dart';
 import 'chat_data_screen.dart';
 import 'chat_groupings_screen.dart';
+import 'facts_screen.dart';
+import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'train_screen.dart';
 
@@ -186,6 +188,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   _Explore(
                     onChatData: () => _push(const ChatDataScreen()),
                     onGroupings: () => _push(const ChatGroupingsScreen()),
+                    onSearch: () => _push(const SearchScreen()),
+                    onRemember: () => _push(const FactsScreen()),
                   ),
                   if (settings.mode == TrainingMode.fineTune &&
                       !settings.hasFineTunedModel)
@@ -506,46 +510,70 @@ class _AddChatRow extends StatelessWidget {
   );
 }
 
-/// The two ways to look at what has been learned, side by side.
+/// The ways to look at what has been learned, two to a row.
 class _Explore extends StatelessWidget {
-  const _Explore({required this.onChatData, required this.onGroupings});
+  const _Explore({
+    required this.onChatData,
+    required this.onGroupings,
+    required this.onSearch,
+    required this.onRemember,
+  });
 
   final VoidCallback onChatData;
   final VoidCallback onGroupings;
+  final VoidCallback onSearch;
+  final VoidCallback onRemember;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const MonoLabel('Look closer'),
-      const SizedBox(height: 9),
-      // Equal heights, so the two tiles read as one row.
-      IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _Tile(
-                icon: Icons.insights_rounded,
-                title: 'Chat data',
-                subtitle: 'Reply times, word counts',
-                onTap: onChatData,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _Tile(
-                icon: Icons.bubble_chart_outlined,
-                title: 'Chat groupings',
-                subtitle: 'What you talk about',
-                onTap: onGroupings,
-              ),
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) {
+    // Equal heights, so each pair of tiles reads as one row.
+    Widget pair(Widget a, Widget b) => IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: a),
+          const SizedBox(width: 10),
+          Expanded(child: b),
+        ],
       ),
-    ],
-  );
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const MonoLabel('Look closer'),
+        const SizedBox(height: 9),
+        pair(
+          _Tile(
+            icon: Icons.insights_rounded,
+            title: 'Chat data',
+            subtitle: 'Reply times, word counts',
+            onTap: onChatData,
+          ),
+          _Tile(
+            icon: Icons.bubble_chart_outlined,
+            title: 'Chat groupings',
+            subtitle: 'What you talk about',
+            onTap: onGroupings,
+          ),
+        ),
+        const SizedBox(height: 10),
+        pair(
+          _Tile(
+            icon: Icons.search_rounded,
+            title: 'Search',
+            subtitle: 'Find a moment by meaning',
+            onTap: onSearch,
+          ),
+          _Tile(
+            icon: Icons.favorite_border_rounded,
+            title: 'Remember',
+            subtitle: 'Things they’ve told you',
+            onTap: onRemember,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _Tile extends StatelessWidget {

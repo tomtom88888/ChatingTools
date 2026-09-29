@@ -4,7 +4,9 @@ import '../models/api_usage.dart';
 import '../models/app_settings.dart';
 import '../models/stored_exchange.dart';
 import '../models/suggestion_feedback.dart';
+import '../services/chat_facts.dart';
 import '../services/chat_groupings.dart';
+import '../services/chat_search.dart';
 import '../services/embeddings_store.dart';
 import '../services/exchange_store.dart';
 import '../services/finetune_service.dart';
@@ -31,6 +33,8 @@ final usageStoreProvider = Provider<UsageStore>((ref) => const UsageStore());
 final groupingsStoreProvider = Provider<GroupingsStore>(
   (ref) => const GroupingsStore(),
 );
+
+final factsStoreProvider = Provider<FactsStore>((ref) => const FactsStore());
 
 /// Typed as the interface so tests can substitute an in-memory store.
 final exchangeStoreProvider = Provider<ExchangeStore>((ref) {
@@ -127,6 +131,18 @@ final chatGrouperProvider = Provider<ChatGrouper?>((ref) {
   return ChatGrouper(openai: openai);
 });
 
+final chatFactsProvider = Provider<ChatFacts?>((ref) {
+  final openai = ref.watch(openAiServiceProvider);
+  if (openai == null) return null;
+  return ChatFacts(openai: openai);
+});
+
+final chatSearchProvider = Provider<ChatSearch?>((ref) {
+  final openai = ref.watch(openAiServiceProvider);
+  if (openai == null) return null;
+  return ChatSearch(openai: openai, store: ref.watch(exchangeStoreProvider));
+});
+
 final fineTuneServiceProvider = Provider<FineTuneService?>((ref) {
   final openai = ref.watch(openAiServiceProvider);
   if (openai == null) return null;
@@ -162,6 +178,8 @@ class ChatsNotifier extends AsyncNotifier<List<ChatMemory>> {
 
   Future<void> delete(int chatId) async {
     await ref.read(exchangeStoreProvider).deleteChat(chatId);
+    // What was learned about them goes with the chat.
+    await ref.read(factsStoreProvider).remove(chatId);
     await reload();
   }
 }
@@ -219,6 +237,7 @@ class DataWiper {
     await _ref.read(settingsStoreProvider).clear();
     await _ref.read(usageStoreProvider).clear();
     await _ref.read(groupingsStoreProvider).clear();
+    await _ref.read(factsStoreProvider).clear();
     if (includeApiKey) await _ref.read(apiKeyProvider.notifier).clear();
     _ref.invalidate(settingsProvider);
     _ref.invalidate(exchangeStoreProvider);

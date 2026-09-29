@@ -13,6 +13,7 @@ import '../models/reply_suggestion.dart';
 import '../models/stored_exchange.dart';
 import '../models/style_profile.dart';
 import '../models/suggestion_feedback.dart';
+import '../services/chat_facts.dart';
 import '../services/exchange_store.dart';
 import '../services/pasted_conversation.dart';
 import '../services/reply_generator.dart';
@@ -69,6 +70,9 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
   List<ChatTurn> _conversation = [];
   StyleProfile _profile = StyleProfile.empty;
   List<String> _voiceSample = const [];
+
+  /// What is remembered about the person being replied to, for callbacks.
+  List<String> _facts = const [];
 
   /// A one-off instruction for this reply: what to say, as opposed to how.
   /// Cleared with the screenshot, because it belongs to this moment.
@@ -387,6 +391,15 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         chatIds: {for (final c in enabled) c.id},
         preferChatId: chat?.id,
       );
+      final facts = chat == null
+          ? const <String>[]
+          : [
+              for (final f
+                  in (await ref.read(factsStoreProvider).forChat(chat.id))
+                          ?.facts ??
+                      const <ChatFact>[])
+                f.text,
+            ];
       final variants = await generator.generate(
         conversation: conversation,
         examples: retrieved.examples,
@@ -395,9 +408,11 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         profile: profile,
         voiceSample: voiceSample,
         group: _isGroup(chat),
+        facts: facts,
       );
       if (mounted) {
         setState(() {
+          _facts = facts;
           _conversation = conversation;
           _examples = retrieved.examples;
           _skipped = retrieved.skipped;
@@ -434,6 +449,7 @@ class _GenerateScreenState extends ConsumerState<GenerateScreen> {
         profile: _profile,
         voiceSample: _voiceSample,
         group: _isGroup(_currentReplyingTo(_enabledChats())),
+        facts: _facts,
       );
       if (!mounted) return;
       setState(() {
